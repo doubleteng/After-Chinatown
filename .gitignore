@@ -1,0 +1,16 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+.clasp.json
+.clasprc.json
+credentials*.json
+service-account*.json
+node_modules/
+__pycache__/
+*.pyc
+build/
+data/local/
+private/
+src/street/page102.html
+*.log

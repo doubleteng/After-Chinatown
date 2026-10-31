@@ -1,0 +1,2952 @@
+window.createHeatUnderlay = function({
+    THREE: e,
+    CSS3DRenderer: t,
+    CSS3DObject: n,
+    host: o,
+    camera: a,
+    controls: i,
+    pos: r,
+    geo: s
+}) {
+    const l = new t,
+        d = new e.Scene,
+        c = document.createElement("canvas");
+    l.domElement.className = "street-basemap heat-underlay";
+    l.domElement.setAttribute("aria-hidden", "true");
+    o.insertBefore(l.domElement, o.querySelector("canvas,svg"));
+    c.width = c.height = 1200;
+    c.style.width = c.style.height = "1200px";
+    c.style.pointerEvents = "none";
+    const u = new n(c);
+    u.rotation.x = -Math.PI / 2;
+    u.position.y = RoadGrade.basemap;
+    d.add(u);
+    let h = null,
+        m = "",
+        p = null,
+        f = [];
+    const g = c.getContext("2d");
+
+    function y(e, t, n, o) {
+        g.beginPath();
+        for (const a of e.type === "MultiPolygon" ? e.coordinates : [e.coordinates])
+            for (const e of a) {
+                e.forEach((e, a) => {
+                    const i = r(e),
+                        s = (i.x - t) * o,
+                        l = (i.z - n) * o;
+                    a ? g.lineTo(s, l) : g.moveTo(s, l)
+                });
+                g.closePath()
+            }
+    }
+
+    function b() {
+        p = null;
+        if (!h) return;
+        const e = Math.max(1200, Math.min(16e4, a.position.distanceTo(i.target) * 1.65)),
+            t = i.target.x - e,
+            n = i.target.z - e,
+            c = e * 2,
+            b = 1200 / c;
+        const w = [t.toFixed(0), n.toFixed(0), c.toFixed(0), h.key].join("|");
+        if (w === m) return;
+        m = w;
+        g.clearRect(0, 0, 1200, 1200);
+        u.position.set(t + e, -.05, n + e);
+        u.scale.set(c / 1200, c / 1200, 1);
+        for (const {
+                f: e,
+                value: o,
+                bounds: a
+            }
+            of f) {
+            if (a[2] < t || a[0] > t + c || a[3] < n || a[1] > n + c) continue;
+            y(e.geometry, t, n, b);
+            g.fillStyle = ActivityRules.color(o);
+            g.globalAlpha = 1;
+            g.fill("evenodd");
+            g.globalAlpha = 1;
+            g.strokeStyle = "#8b5b4038";
+            g.lineWidth = .8;
+            g.stroke();
+            if (o === null) {
+                g.save();
+                g.clip("evenodd");
+                g.strokeStyle = "#58666e88";
+                g.beginPath();
+                for (let e = -1200; e < 2400; e += 16) {
+                    g.moveTo(e, 0);
+                    g.lineTo(e + 1200, 1200)
+                }
+                g.stroke();
+                g.restore()
+            }
+        }
+        if (h.rows.length) {
+            const e = 500,
+                o = c / e,
+                a = new Float32Array(e * e),
+                i = 4e3 / o;
+            for (const l of h.rows) {
+                const d = r([l.lon, l.lat]),
+                    c = (d.x - t) / o,
+                    u = (d.z - n) / o;
+                for (let r = Math.max(0, Math.floor(u - i)); r < Math.min(e, Math.ceil(u + i)); r++)
+                    for (let d = Math.max(0, Math.floor(c - i)); d < Math.min(e, Math.ceil(c + i)); d++) {
+                        const i = s({
+                            x: t + (d + .5) * o,
+                            z: n + (r + .5) * o
+                        });
+                        a[r * e + d] += ActivityRules.kernel(Spatial.distance(i, [l.lon, l.lat]) / 1e3)
+                    }
+            }
+            const l = document.createElement("canvas");
+            l.width = l.height = e;
+            const d = l.getContext("2d"),
+                u = d.createImageData(e, e);
+            for (let e = 0; e < a.length; e++) {
+                const t = a[e];
+                if (t <= 0) continue;
+                u.data.set([...ActivityRules.heatColor(t), ActivityRules.heatAlpha(t)], e * 4)
+            }
+            d.putImageData(u, 0, 0);
+            g.imageSmoothingEnabled = true;
+            g.imageSmoothingQuality = "high";
+            g.drawImage(l, 0, 0, 1200, 1200)
+        }
+
+        function x(e) {
+            const o = r(e);
+            return [(o.x - t) * b, (o.z - n) * b]
+        }
+
+        function M(e, t, n, o) {
+            const a = x(e),
+                i = x(t),
+                r = i[0] - a[0],
+                s = i[1] - a[1],
+                l = Math.hypot(r, s);
+            if (l < 12) return;
+            const d = r / l,
+                c = s / l,
+                u = i[0] - d * 9,
+                h = i[1] - c * 9;
+            g.save();
+            g.strokeStyle = o;
+            g.fillStyle = o;
+            g.lineWidth = 3;
+            g.setLineDash(n ? [9, 6] : []);
+            g.beginPath();
+            g.moveTo(a[0] + d * 9, a[1] + c * 9);
+            g.lineTo(u, h);
+            g.stroke();
+            g.setLineDash([]);
+            g.beginPath();
+            g.moveTo(u, h);
+            g.lineTo(u - d * 12 + c * 6, h - c * 12 - d * 6);
+            g.lineTo(u - d * 12 - c * 6, h - c * 12 + d * 6);
+            g.closePath();
+            g.fill();
+            g.restore()
+        }
+        const v = h.centers || [];
+        for (const e of h.links || []) {
+            const t = v.find(t => t.id === e.fromId),
+                n = v.find(t => t.id === e.toId);
+            if (t && n) M(t.point, n.point, e.kind === "expansion", "#a84017")
+        }
+        for (const e of v) {
+            const [t, n] = x(e.point);
+            if (!h.rows.some(t => Spatial.distance([t.lon, t.lat], e.point) < 750)) {
+                const e = 2400 * b,
+                    o = g.createRadialGradient(t, n, 0, t, n, e);
+                o.addColorStop(0, "rgba(231,72,136,.45)");
+                o.addColorStop(.25, "rgba(242,113,163,.32)");
+                o.addColorStop(.6, "rgba(248,169,199,.12)");
+                o.addColorStop(1, "rgba(252,222,233,0)");
+                g.fillStyle = o;
+                g.fillRect(t - e, n - e, e * 2, e * 2)
+            }
+            g.beginPath();
+            g.arc(t, n, 3, 0, Math.PI * 2);
+            g.fillStyle = "#be1c63";
+            g.fill()
+        }
+        const S = h.populationCenters || [];
+        for (let e = 1; e < S.length; e++) M(S[e - 1].point, S[e].point, false, "#482619");
+        for (const e of S) {
+            const [t, n] = x(e.point);
+            g.save();
+            g.translate(t, n);
+            g.rotate(Math.PI / 4);
+            g.fillStyle = "#482619";
+            g.fillRect(-4, -4, 8, 8);
+            g.strokeStyle = "#fff7ec";
+            g.lineWidth = 1.5;
+            g.strokeRect(-4, -4, 8, 8);
+            g.restore()
+        }
+        l.domElement.style.opacity = String(h.opacity);
+        o.dataset.heatHeight = "-0.05";
+        o.dataset.activityStyle = "pink-diffusion";
+        o.dataset.heatFeatures = String(f.length);
+        o.dataset.heatVenues = String(h.rows.length);
+        l.render(d, a)
+    }
+
+    function w(e) {
+        h = e;
+        o.dataset.heatVisible = String(!!e);
+        m = "";
+        l.domElement.hidden = !e;
+        f = (e?.features || []).map(t => {
+            const n = ActivityRules.population(t.properties, e.level, e.period).estimate,
+                o = (t.geometry.type === "MultiPolygon" ? t.geometry.coordinates.flat() : t.geometry.coordinates).flat().map(r);
+            return {
+                f: t,
+                value: n === null || !t.properties.landKm2 ? null : n / t.properties.landKm2,
+                bounds: [Math.min(...o.map(e => e.x)), Math.min(...o.map(e => e.z)), Math.max(...o.map(e => e.x)), Math.max(...o.map(e => e.z))]
+            }
+        });
+        b()
+    }
+
+    function x() {
+        if (!h) return;
+        l.render(d, a);
+        clearTimeout(p);
+        p = setTimeout(b, 160)
+    }
+    let M = "";
+
+    function v(e, t) {
+        const n = e + "x" + t;
+        if (n === M) return;
+        M = n;
+        l.setSize(e, t);
+        x()
+    }
+    l.domElement.hidden = true;
+    v(o.clientWidth, o.clientHeight);
+    return {
+        set: w,
+        draw: x,
+        size: v
+    }
+};
+window.createAtlasBasemap = async function({
+    THREE: e,
+    host: t,
+    camera: n,
+    controls: o,
+    pos: a,
+    geo: i,
+    data: r
+}) {
+    const {
+        CSS3DRenderer: s,
+        CSS3DObject: l
+    } = await (import("three/addons/renderers/CSS3DRenderer.js"));
+    const d = window.createHeatUnderlay({
+        THREE: e,
+        CSS3DRenderer: s,
+        CSS3DObject: l,
+        host: t,
+        camera: n,
+        controls: o,
+        pos: a,
+        geo: i
+    });
+    const c = new s,
+        u = new e.Scene,
+        h = new s,
+        m = new e.Scene,
+        p = new Map;
+    let f = null,
+        g = !!document.getElementById("show-basemap")?.checked,
+        y = 1921,
+        b = !!document.getElementById("show-historical-map")?.checked;
+    const w = new Map;
+    c.domElement.className = "street-basemap current-basemap";
+    c.domElement.hidden = !g;
+    c.domElement.setAttribute("aria-hidden", "true");
+    h.domElement.className = "street-basemap historical-basemap";
+    h.domElement.setAttribute("aria-hidden", "true");
+    t.prepend(h.domElement);
+    t.prepend(c.domElement);
+
+    function x() {
+        c.render(u, n);
+        h.render(m, n);
+        d.draw()
+    }
+    const M = (e, t) => e / 2 ** t * 360 - 180,
+        v = (e, t) => Math.atan(Math.sinh(Math.PI * (1 - 2 * e / 2 ** t))) * 180 / Math.PI;
+    const S = (e, t) => Math.floor((e + 180) / 360 * 2 ** t),
+        z = (e, t) => Math.floor((1 - Math.asinh(Math.tan(e * Math.PI / 180)) / Math.PI) / 2 * 2 ** t);
+
+    function k(t) {
+        const r = o.target,
+            s = Math.min(16e4, Math.max(450, Math.abs(n.position.y) * 3)),
+            l = i({
+                x: r.x - s,
+                z: r.z - s
+            }),
+            d = i({
+                x: r.x + s,
+                z: r.z + s
+            });
+        const c = (new e.Frustum).setFromProjectionMatrix((new e.Matrix4).multiplyMatrices(n.projectionMatrix, n.matrixWorldInverse)),
+            u = [];
+        for (let n = S(l[0], t); n <= S(d[0], t); n++)
+            for (let o = z(l[1], t); o <= z(d[1], t); o++) {
+                const i = a([M(n, t), v(o, t)]),
+                    r = a([M(n + 1, t), v(o + 1, t)]),
+                    s = new e.Box3(new e.Vector3(i.x, -.26, i.z), new e.Vector3(r.x, -.24, r.z));
+                if (c.intersectsBox(s)) u.push({
+                    key: t + "/" + n + "/" + o,
+                    a: i,
+                    b: r
+                })
+            }
+        return u
+    }
+
+    function E(e) {
+        const t = e.width,
+            o = e.height,
+            i = document.createElement("img");
+        i.alt = "";
+        i.width = t;
+        i.height = o;
+        i.decoding = "async";
+        i.dataset.mapId = e.id;
+        i.dataset.loaded = "pending";
+        i.style.width = t + "px";
+        i.style.height = o + "px";
+        i.style.pointerEvents = "none";
+        i.draggable = false;
+        const r = a([e.bounds[0], e.bounds[3]]),
+            s = a([e.bounds[2], e.bounds[1]]),
+            d = new l(i);
+        d.rotation.x = -Math.PI / 2;
+        d.position.set((r.x + s.x) / 2, -.2, (r.z + s.z) / 2);
+        d.scale.set((s.x - r.x) / t, (s.z - r.z) / o, 1);
+        const c = () => {
+            if (!e.displayPolygons) return "";
+            const n = e.displayPolygons.flatMap(e => e.map(e => e.map((e, n) => {
+                const i = a(e),
+                    l = (i.x - r.x) / (s.x - r.x) * t,
+                    d = (i.z - r.z) / (s.z - r.z) * o;
+                return (n ? "L" : "M") + l.toFixed(2) + " " + d.toFixed(2)
+            }).join(" ") + " Z")).join(" ");
+            return 'path(evenodd,"' + n + '")'
+        };
+        i.style.clipPath = c();
+        d.userData.maskSignature = JSON.stringify(e.displayPolygons || []);
+        const u = () => {
+            if (w.get(e.id) !== d) return;
+            i.dataset.loaded = "error";
+            document.getElementById("basemap-status").textContent = "A historical map image could not load. Toggle the historical map to retry."
+        };
+        i.onerror = u;
+        i.onload = () => {
+            if (w.get(e.id) !== d) return;
+            i.dataset.loaded = "ready";
+            if (b) h.render(m, n)
+        };
+        AtlasAssets.raster(e.id).then(t => {
+            if (w.get(e.id) === d) i.src = t
+        }).catch(u);
+        return d
+    }
+
+    function A() {
+        const e = b ? AtlasLayers.overlays(window.HISTORICAL_RASTERS || [], r, window.TIMELINE_DATA, y) : [],
+            n = new Set(e.map(e => e.id));
+        for (const [t, o] of w)
+            if (!n.has(t) || o.userData.maskSignature !== JSON.stringify(e.find(e => e.id === t)?.displayPolygons || [])) {
+                m.remove(o);
+                o.element.remove();
+                if (o.userData.blobUrl) URL.revokeObjectURL(o.userData.blobUrl);
+                w.delete(t)
+            } for (const t of e)
+            if (!w.has(t.id)) {
+                const e = E(t);
+                m.add(e);
+                w.set(t.id, e)
+            } t.dataset.historicalMaps = String(e.length);
+        t.dataset.historicalMapYears = [...new Set(e.map(e => e.year))].join(",");
+        const o = document.getElementById("basemap-status");
+        o.textContent = e.length ? "Historical map · " + [...new Set(e.map(e => e.year))].join(", ") : b ? "No historical map for this year" : g ? "Present-day map" : "";
+        const a = document.getElementById("current-map-credit");
+        if (a) a.hidden = !g;
+        document.querySelectorAll(".historical-credit").forEach(e => e.remove());
+        const i = [...new Map(e.map(e => [e.source_url, e])).values()];
+        for (const [e, t] of i.entries()) {
+            const n = document.createElement("a");
+            n.className = "historical-credit";
+            n.href = t.source_url;
+            n.target = "_blank";
+            n.rel = "noopener noreferrer";
+            n.textContent = "LOC / OIM" + (i.length > 1 ? " · " + (e + 1) : "");
+            o.after(n)
+        }
+        x()
+    }
+
+    function R(e) {
+        if (y !== e) {
+            y = e;
+            A()
+        }
+    }
+
+    function C(e) {
+        b = e;
+        h.domElement.hidden = !e;
+        document.querySelector(".basemap-credit").hidden = !g && !e;
+        A()
+    }
+
+    function B() {
+        f = null;
+        if (!g) return;
+        let e = n.position.y > 2e4 ? 9 : n.position.y > 6e3 ? 12 : n.position.y > 1200 ? 15 : n.position.y > 350 ? 16 : 17,
+            t = k(e);
+        while (t.length > 72 && e > 7) t = k(--e);
+        const o = new Set(t.map(e => e.key));
+        for (const [e, t] of p)
+            if (!o.has(e)) {
+                u.remove(t);
+                t.element.remove();
+                p.delete(e)
+            } for (const e of t)
+            if (!p.has(e.key)) {
+                const t = document.createElement("img");
+                t.alt = "";
+                t.width = 256;
+                t.height = 256;
+                t.decoding = "async";
+                t.draggable = false;
+                t.referrerPolicy = "strict-origin-when-cross-origin";
+                t.src = "https://tile.openstreetmap.org/" + e.key + ".png";
+                t.style.width = "256px";
+                t.style.height = "256px";
+                t.style.pointerEvents = "none";
+                t.onerror = () => {
+                    t.style.opacity = "0";
+                    document.getElementById("basemap-status").textContent = "Some street map tiles could not load."
+                };
+                const n = new l(t);
+                n.rotation.x = -Math.PI / 2;
+                n.position.set((e.a.x + e.b.x) / 2, -.25, (e.a.z + e.b.z) / 2);
+                n.scale.set((e.b.x - e.a.x) / 256, (e.b.z - e.a.z) / 256, 1);
+                u.add(n);
+                p.set(e.key, n)
+            } x()
+    }
+
+    function I() {
+        if (!g && !b) {
+            d.draw();
+            return
+        }
+        x();
+        clearTimeout(f);
+        f = setTimeout(B, 180)
+    }
+    let P = "";
+
+    function T(e, t) {
+        const n = e + "x" + t;
+        if (n === P) return;
+        P = n;
+        c.setSize(e, t);
+        h.setSize(e, t);
+        d.size(e, t);
+        I()
+    }
+
+    function V(e) {
+        g = e;
+        c.domElement.hidden = !e;
+        document.querySelector(".basemap-credit").hidden = !e && !b;
+        A();
+        if (e) B();
+        else clearTimeout(f);
+        I()
+    }
+    T(t.clientWidth, t.clientHeight);
+    A();
+    return {
+        draw: I,
+        size: T,
+        visible: V,
+        setYear: R,
+        historical: C,
+        heat: d.set
+    }
+};
+const e = {
+    rectangle(e) {
+        const t = e.map(e => ({
+                x: e.x,
+                z: e.z
+            })).sort((e, t) => e.x - t.x || e.z - t.z),
+            n = (e, t, n) => (t.x - e.x) * (n.z - e.z) - (t.z - e.z) * (n.x - e.x);
+        const o = e => {
+            const t = [];
+            for (const o of e) {
+                while (t.length > 1 && n(t[t.length - 2], t[t.length - 1], o) <= 0) t.pop();
+                t.push(o)
+            }
+            return t
+        };
+        const a = o(t),
+            i = o([...t].reverse());
+        a.pop();
+        i.pop();
+        const r = a.concat(i);
+        let s;
+        for (let e = 0; e < r.length; e++) {
+            const t = r[e],
+                n = r[(e + 1) % r.length],
+                o = Math.atan2(n.z - t.z, n.x - t.x),
+                a = Math.cos(o),
+                i = Math.sin(o);
+            let l = Infinity,
+                d = -Infinity,
+                c = Infinity,
+                u = -Infinity;
+            for (const e of r) {
+                const t = e.x * a + e.z * i,
+                    n = -e.x * i + e.z * a;
+                l = Math.min(l, t);
+                d = Math.max(d, t);
+                c = Math.min(c, n);
+                u = Math.max(u, n)
+            }
+            const h = d - l,
+                m = u - c,
+                p = h * m;
+            if (!s || p < s.area - 1e-8) {
+                const e = (l + d) / 2,
+                    t = (c + u) / 2;
+                s = {
+                    area: p,
+                    width: Math.max(h, m),
+                    depth: Math.min(h, m),
+                    angle: o + (m > h ? Math.PI / 2 : 0),
+                    center: {
+                        x: e * a - t * i,
+                        z: e * i + t * a
+                    }
+                }
+            }
+        }
+        if (!s || s.depth < 1e-8) throw Error("The model has no usable horizontal footprint.");
+        return s
+    },
+    fit(e, t) {
+        return {
+            yaw: e.angle - t.angle,
+            scale: Math.min(t.width / e.width, t.depth / e.depth),
+            center: t.center
+        }
+    }
+};
+if (typeof module !== "undefined") module.exports = e;
+
+function t({
+    THREE: e,
+    scene: t,
+    renderer: n,
+    host: o,
+    camera: a,
+    ambient: i,
+    hemisphere: r,
+    light: s,
+    vector: l,
+    view: d,
+    buildings: c,
+    roads: u,
+    footprints: h,
+    enabled: m = true
+}) {
+    let p = false,
+        f = null,
+        g = true,
+        y = null,
+        b = null,
+        w = new Set,
+        x = null;
+    let M = 0,
+        v = 0,
+        S = 0,
+        z = [],
+        k = false,
+        E = null;
+    let A = null,
+        R = "",
+        C = 0;
+    const B = MobileAtlas.compact() || (navigator.deviceMemory || 8) <= 4 || (navigator.hardwareConcurrency || 8) <= 4;
+    const I = 192,
+        P = 128,
+        T = B ? 512 : 1024,
+        V = B ? 48 : 96;
+    const L = {
+        ambient: i.intensity,
+        ambientColor: i.color.clone(),
+        hemisphere: r.intensity,
+        sky: r.color.clone(),
+        ground: r.groundColor.clone(),
+        sun: s.intensity,
+        sunColor: s.color.clone(),
+        position: s.position.clone(),
+        target: s.target.position.clone()
+    };
+    let solar80=null;
+    const sky80=AtlasNavigation80.sky({THREE:e,scene:t,camera:a,host:o,vector:l});
+    const G = new e.Fog("#e1e5d9", 300, 1850);
+    t.add(s.target);
+
+    function F() {
+        g = true
+    }
+
+    function D(e) {
+        m = !!e;
+        g = true
+    }
+
+    function j(e, t) {
+        if (!e) return;
+        e.traverse(e => {
+            if (!e.isMesh) return;
+            const n = Array.isArray(e.material) ? e.material : [e.material];
+            e.castShadow = t && n.every(e => e && !e.transparent && e.opacity >= .99);
+            e.receiveShadow = t
+        })
+    }
+
+    function H() {
+        if (y) return;
+        n.shadowMap.type = e.PCFSoftShadowMap;
+        n.shadowMap.autoUpdate = false;
+        s.shadow.autoUpdate = false;
+        s.shadow.mapSize.set(T, T);
+        Object.assign(s.shadow.camera, {
+            left: -I,
+            right: I,
+            top: I,
+            bottom: -I,
+            near: 1,
+            far: 1200
+        });
+        s.shadow.camera.updateProjectionMatrix();
+        s.shadow.bias = -15e-5;
+        s.shadow.normalBias = .35;
+        y = new e.Mesh(new e.PlaneGeometry(1600, 1600), new e.ShadowMaterial({
+            color: "#263840",
+            opacity: .4,
+            depthWrite: false
+        }));
+        y.rotation.x = -Math.PI / 2;
+        y.position.y = RoadGrade.shadow;
+        y.receiveShadow = true;
+        y.visible = false;
+        t.add(y)
+    }
+
+    function O() {
+        if (!l) {
+            n.shadowMap.enabled = false;
+            s.castShadow = false
+        }
+        if (y) y.visible = false;
+        for (const e of w)
+            if (e.mesh) e.mesh.castShadow = false;
+        w.clear();
+        j(x, false);
+        g = true
+    }
+
+    function W(e) {
+        const t = [...new Map(e.map(e => [e.x.toFixed(4) + "," + e.z.toFixed(4), e])).values()].sort((e, t) => e.x - t.x || e.z - t.z);
+        const n = (e, t, n) => (t.x - e.x) * (n.z - e.z) - (t.z - e.z) * (n.x - e.x),
+            o = [],
+            a = [];
+        for (const e of t) {
+            while (o.length > 1 && n(o[o.length - 2], o[o.length - 1], e) <= 0) o.pop();
+            o.push(e)
+        }
+        for (let e = t.length - 1; e >= 0; e--) {
+            const o = t[e];
+            while (a.length > 1 && n(a[a.length - 2], a[a.length - 1], o) <= 0) a.pop();
+            a.push(o)
+        }
+        o.pop();
+        a.pop();
+        return o.concat(a)
+    }
+
+    function N(n) {
+        const i = f === "map" ? n.focus || a.position : a.position;
+        const r = Math.min(1300, Math.max(350, Math.ceil(a.position.y * .7 / 128) * 128));
+        const s = Math.round(i.x / P) * P,
+            d = Math.round(i.z / P) * P,
+            u = s + "|" + d + "|" + r + "|" + solar80.key;
+        if (!g && u === R) {
+            if (A) A.visible = true;
+            return false
+        }
+        const m = c().filter(e => e.mesh && e.building.id !== n.alignedTarget && !e.mesh.material.transparent && e.mesh.material.opacity >= .99 && Math.hypot(e.bounds.center.x - s, e.bounds.center.z - d) < r + e.bounds.radius).sort((e, t) => Math.hypot(e.bounds.center.x - s, e.bounds.center.z - d) - Math.hypot(t.bounds.center.x - s, t.bounds.center.z - d)).slice(0, V);
+        const p = [];
+        for (const e of m) {
+            const t = Math.min(100, Math.max(0, e.building.height || 0)),
+                n = -t * solar80.x / solar80.y,
+                o = -t * solar80.z / solar80.y;
+            if (t < .2) continue;
+            for (const t of h(e.building)) {
+                const e = W(t.flatMap(e => [e, {
+                    x: e.x + n,
+                    z: e.z + o
+                }]));
+                for (let t = 1; t + 1 < e.length; t++)
+                    for (const n of [e[0], e[t], e[t + 1]]) p.push(n.x, RoadGrade.shadow, n.z)
+            }
+        }
+        const y = new e.BufferGeometry;
+        y.setAttribute("position", new e.Float32BufferAttribute(p, 3));
+        y.computeBoundingSphere();
+        if (!A) {
+            A = new e.Mesh(y, new e.MeshBasicMaterial({
+                color: "#35463e",
+                transparent: true,
+                opacity: l ? .25 : .22,
+                depthWrite: false,
+                side: e.DoubleSide
+            }));
+            A.name = "atlas-ground-shadows";
+            A.renderOrder = l ? -.5 : 0;
+            t.add(A)
+        } else {
+            A.geometry.dispose();
+            A.geometry = y
+        }
+        A.visible = p.length > 0;
+        R = u;
+        g = false;
+        C++;
+        o.dataset.groundShadowCasters = String(m.length);
+        o.dataset.groundShadowUpdates = String(C);
+        return false
+    }
+
+    function Y() {
+        const e = d(),
+            h = e.mode === "street" && m ? "street" : "plain";
+        AtlasNavigation80.gate(e.mode);
+        o.dataset.renderingEnabled = String(h === "street");
+        if(h === "street"){
+            const next=AtlasNavigation80.sun(e.year,e.point,o);
+            if(next!==solar80){solar80=next;g=true;}
+        }
+        sky80.update(h === "street",solar80);
+        if (h !== f) {
+            f = h;
+            p = f !== "off" && f !== "plain";
+            g = true;
+            v = 0;
+            S = 0;
+            z = [];
+            if (p) {
+                i.intensity = l ? 1 : .1;
+                i.color.setRGB(l ? .13 : 1, l ? .16 : 1, l ? .2 : 1);
+                r.intensity = l ? .32 : .5;
+                r.color.set("#cddfff");
+                r.groundColor.set("#9c937f");
+                s.color.set("#fff1dc");
+                s.intensity = l ? 1.1 : 2.05;
+                s.position.set(solar80.x*600, solar80.y*600, solar80.z*600);
+                s.target.position.set(0, 0, 0);
+                s.target.updateMatrixWorld()
+            } else {
+                i.intensity = l ? 1 : L.ambient;
+                i.color.copy(L.ambientColor);
+                if (l) i.color.multiplyScalar(.45);
+                r.intensity = L.hemisphere;
+                r.color.copy(L.sky);
+                r.groundColor.copy(L.ground);
+                s.intensity = l ? .65 : L.sun;
+                s.color.copy(L.sunColor);
+                s.position.copy(L.position);
+                s.target.position.copy(L.target);
+                s.target.updateMatrixWorld();
+                O();
+                if (A) A.visible = false;
+                o.dataset.shadowFallbackReason = ""
+            }
+            for (const e of c())
+                if (e.edge) e.edge.material.opacity = p ? f === "street" ? .065 : .1 : .24;
+            o.dataset.lightingProfile = "geographic-noaa-meeus-street-only";
+            o.dataset.shadowProjectionMeters = "384";
+            o.dataset.streetRendering = f === "street" ? "daylight" : p ? "daylight-map" : f === "plain" ? "plain" : "off"
+        }
+        if(p&&solar80){
+            const daylight=Math.max(0,Math.min(1,(solar80.elevation+6)/18));
+            s.intensity=solar80.elevation>0?(l?1.1:2.05)*Math.min(1,solar80.y*5):0;
+            i.intensity=l?1:.05+.05*daylight;r.intensity=(l?.32:.5)*(.2+.8*daylight);
+            const focus=b||{x:0,z:0};s.position.set(focus.x+solar80.x*600,solar80.y*600,focus.z+solar80.z*600);
+            s.target.position.set(focus.x,0,focus.z);s.target.updateMatrixWorld();
+        }
+        const R = f === "street" && !l;
+        G.near = Math.max(300, a.position.y * 1.25);
+        G.far = Math.max(1850, a.position.y * 4);
+        t.fog = R ? G : null;
+        o.dataset.streetFog = String(R);
+        if (!p) {
+            if (!l && n.shadowMap.enabled) O();
+            if (A) A.visible = false;
+            o.dataset.streetShadows = "off";
+            return false
+        }
+        if(solar80.elevation<=.5){O();if(A)A.visible=false;o.dataset.streetShadows="below-horizon";return false;}
+        const C = f === "street" && a.position.y < 220 && !l && !k,
+            B = C ? "gpu" : "ground";
+        if (B !== E) {
+            E = B;
+            g = true
+        }
+        if (!C) {
+            if (!l && n.shadowMap.enabled) O();
+            o.dataset.streetShadows = "lightweight";
+            o.dataset.shadowFallbackReason = l ? "webgl-unavailable" : k ? "device-limited" : f === "map" ? "map-view" : "elevated-view";
+            if (e.animation) return false;
+            return N(e)
+        }
+        if (A) A.visible = false;
+        o.dataset.shadowFallbackReason = "";
+        if (e.animation) {
+            if (g && n.shadowMap.enabled) O();
+            return false
+        }
+        const V = Math.round(a.position.x / P) * P,
+            F = Math.round(a.position.z / P) * P;
+        if (!b || b.x !== V || b.z !== F) g = true;
+        if (x !== e.detailed) {
+            j(x, false);
+            x = e.detailed;
+            g = true
+        }
+        if (!g) return false;
+        H();
+        b = {
+            x: V,
+            z: F
+        };
+        s.target.position.set(V, 0, F);
+        s.target.updateMatrixWorld();
+        s.position.set(V + solar80.x*600, solar80.y*600, F + solar80.z*600);
+        y.position.set(V, RoadGrade.shadow, F);
+        y.visible = true;
+        for (const e of w)
+            if (e.mesh) e.mesh.castShadow = false;
+        w.clear();
+        for (const t of c()) {
+            if (t.edge) t.edge.material.opacity = .065;
+            if (!t.mesh) continue;
+            const n = Math.hypot(t.bounds.center.x - V, t.bounds.center.z - F) < I * 1.55 + t.bounds.radius;
+            const o = !t.mesh.material.transparent && t.mesh.material.opacity >= .99;
+            t.mesh.castShadow = n && o && t.building.id !== e.alignedTarget;
+            t.mesh.receiveShadow = n;
+            if (t.mesh.castShadow) w.add(t)
+        }
+        for (const e of u.children)
+            if (e.isMesh) e.receiveShadow = true;
+        j(x, true);
+        n.shadowMap.enabled = true;
+        n.shadowMap.needsUpdate = true;
+        s.castShadow = true;
+        s.shadow.needsUpdate = true;
+        g = false;
+        M++;
+        S = 0;
+        o.dataset.streetShadows = "cached";
+        o.dataset.streetShadowSize = String(T);
+        o.dataset.streetShadowUpdates = String(M);
+        o.dataset.streetShadowCasters = String(w.size);
+        return true
+    }
+
+    function _(e, t) {
+        return t && w.has(e)
+    }
+
+    function U(e, t) {
+        if (!p || l || k || E !== "gpu" || d().animation) {
+            v = 0;
+            return false
+        }
+        const n = v ? e - v : 0;
+        v = e;
+        if (++S < 5 || !n || n > 220) return false;
+        z.push(t - e > 42 || n > 55);
+        if (z.length > 20) z.shift();
+        if (z.length === 20 && z.filter(Boolean).length >= 14) {
+            k = true;
+            O();
+            return true
+        }
+        return false
+    }
+    return {
+        update: Y,
+        invalidate: F,
+        setEnabled: D,
+        keepCaster: _,
+        afterFrame: U,
+        isActive: () => p
+    }
+}
+window.SpatialViewerReady = (async () => {
+    const [n, {
+        OrbitControls: o
+    }, {
+        mergeGeometries: a
+    }] = await Promise.all([import("three"), import("three/addons/controls/OrbitControls.js"), import("three/addons/utils/BufferGeometryUtils.js")]);
+    const i = document.getElementById("scene"),
+        r = document.getElementById("atlas-labels"),
+        s = await window.SpatialDataReady,
+        l = window.TIMELINE_DATA,
+        d = [-83.059, 42.3372];
+    let c = false,
+        u = null,
+        h = true,
+        m = true,
+        p = true;
+    const f = {
+        roads: false,
+        buildings: true,
+        chinatown: true
+    };
+
+    function g(e) {
+        return !(["street", "interchange"].includes(e) && !f.roads || ["landmark", "story-place"].includes(e) && !f.buildings || ["area", "kiosk"].includes(e) && !f.chinatown)
+    }
+    const y = AtlasLayers.colors;
+    let b, w = false;
+    try {
+        b = new n.WebGLRenderer({
+            antialias: !MobileAtlas.compact(),
+            alpha: true,
+            preserveDrawingBuffer: !MobileAtlas.compact(),
+            powerPreference: MobileAtlas.compact() ? "low-power" : "default"
+        });
+        b.setPixelRatio(MobileAtlas.pixelRatio(devicePixelRatio, MobileAtlas.compact()));
+        i.dataset.renderPixelRatio = String(b.getPixelRatio())
+    } catch (e) {
+        const {
+            SVGRenderer: t
+        } = await (import("three/addons/renderers/SVGRenderer.js"));
+        b = new t;
+        b.setPrecision(2);
+        w = true
+    }
+    i.replaceChildren(b.domElement);
+    b.domElement.style.touchAction = "none";
+    b.domElement.setAttribute("aria-label", "Historical 3D scene");
+    const x = new n.Scene;
+    x.background = null;
+    b.setClearColor("#e1e5d9", 0);
+    const M = new n.AmbientLight(16777215, .7),
+        v = new n.HemisphereLight(16777215, 8753533, 1.25);
+    x.add(M, v);
+    const S = new n.DirectionalLight(16777215, 1.35);
+    S.position.set(180, 350, 260);
+    x.add(S);
+    const z = new n.PerspectiveCamera(45, 1, .2, 4e5),
+        k = new o(z, b.domElement);
+    k.maxPolarAngle = Math.PI * .499;
+    k.minDistance = 3;
+    k.maxDistance = 24e4;
+    k.enableDamping = false;
+    k.screenSpacePanning = false;
+    const E = new n.Group,
+        A = new n.Group,
+        R = new n.Group;
+    const C = new n.Group,
+        B = new n.Group,
+        I = new n.Group,
+        P = new n.Group;
+    x.add(C);
+    C.add(B, I, P, E, A, R);
+    let V = null,
+        L = 1921,
+        G = null,
+        F = null,
+        D = null,
+        j = 0,
+        H = null,
+        O = "context",
+        W = 0,
+        N = null,
+        Y = 0,
+        _ = false,
+        U = true,
+        q = [],
+        X = [],
+        Z = [],
+        K = [];
+    const Q = t({
+        THREE: n,
+        scene: x,
+        renderer: b,
+        host: i,
+        camera: z,
+        ambient: M,
+        hemisphere: v,
+        light: S,
+        vector: w,
+        view: () => ({
+            mode: O,
+            animation: N,
+            year: L,
+            detailed: G,
+            alignedTarget: D,
+            focus: k.target,
+            point: Spatial.geographic(z.position,d)
+        }),
+        buildings: () => X,
+        roads: E,
+        footprints: e => Chronology.footprints(e).map(e => e[0].map(e => Spatial.local(e, d))),
+        enabled: AtlasNavigation80.enabled()
+    });
+    const J = e => Spatial.local(e, d),
+        $ = e => Spatial.geographic(e, d);
+    const ee = CameraCollision.create({
+        radius: .65
+    });
+    let te = null,
+        ne = null,
+        oe = false;
+    const street77 = StreetCamera77.bind({
+        element: b.domElement,
+        host: i,
+        camera: z,
+        controls: k,
+        THREE: n,
+        isStreet: () => O === "street",
+        canInteract: () => !_ && !N && O === "street" && (!MobileAtlas.compact() || ce),
+        beforeMove: Pe,
+        onMove: Ce,
+        compact: MobileAtlas.compact,
+        language: () => AtlasI18n.language()
+    });
+    const compass80=AtlasNavigation80.compass({THREE:n,camera:z,host:i,mode:()=>O,reset:()=>{
+        if(O!=="context"||i.dataset.regionalView==="true")return;
+        pt.stop();const target=k.target.clone(),eye=Solar80.northTop(z.position,target);
+        Te(new n.Vector3(eye.x,eye.y,eye.z),target,900);i.dataset.topViewOrientation="north-up";
+    }});
+    AtlasNavigation80.onChange(()=>{Q.setEnabled(AtlasNavigation80.enabled());Q.invalidate();ke();});
+    let flightCleanup80=null;
+    const ae = (e, t) => window.dispatchEvent(new CustomEvent(e, {
+        detail: t
+    }));
+
+    function ie(e) {
+        e.traverse(e => {
+            if (e.geometry) e.geometry.dispose();
+            if (e.material)(Array.isArray(e.material) ? e.material : [e.material]).forEach(e => {
+                Object.values(e).forEach(e => {
+                    if (e?.isTexture) e.dispose()
+                });
+                e.dispose()
+            })
+        })
+    }
+
+    function re(e) {
+        while (e.children.length) {
+            const t = e.children[0];
+            e.remove(t);
+            ie(t)
+        }
+    }
+
+    function se(e, t, o, a) {
+        const i = document.createElement(a ? "button" : "span");
+        i.className = "atlas-label " + o;
+        i.textContent = e;
+        if (a) {
+            i.type = "button";
+            i.onclick = () => {
+                if (!_) a()
+            }
+        }
+        r.append(i);
+        const s = {
+            el: i,
+            p: new n.Vector3(t.x, t.y || 1, t.z),
+            kind: o
+        };
+        q.push(s);
+        return s
+    }
+    let le = null,
+        de = null,
+        ce = true;
+    const ue = BuildingHover.create(n);
+    const visibility78 = LabelVisibility78.create({
+        THREE: n,
+        camera: z,
+        host: i
+    });
+    const coast78 = CoastalReference78.create({
+        THREE: n,
+        scene: x,
+        pos: J,
+        host: i,
+        addLabel: se
+    });
+
+    function he() {
+        visibility78.begin();
+        const e = i.clientHeight,
+            t = i.clientWidth,
+            n = [],
+            o = new Set,
+            a = MobileAtlas.tagsNear(z.position.distanceTo(k.target), e, z.fov);
+        i.dataset.buildingTagsNear = String(a);
+        const r = q.find(e => e.kind === "landmark");
+        const l = a && f.buildings && le && !_ && O !== "photo" ? ue.pick(X, z, le, t, e, (e, t) => Chronology.contains(e.building, $(t))) : null;
+        if (r) {
+            r.el.hidden = !l;
+            if (l) {
+                const e = BuildingAddress.text(s, l.building, L, AtlasI18n.language() === "zh");
+                if (r.el.textContent !== e) r.el.textContent = e;
+                r.el.dataset.buildingId = l.building.id;
+                r.el.dataset.addressKind = l.addressInfo.kind;
+                r.el.dataset.mapYear = String(L);
+                i.dataset.hoverBuilding = l.building.id;
+                i.dataset.hoverAddress = l.addressInfo.primary
+            } else {
+                delete i.dataset.hoverBuilding;
+                delete i.dataset.hoverAddress
+            }
+        }
+        const d = e => ["activity-center", "population-center"].includes(e.kind) ? -1 : e.kind === "story-place" ? 0 : e.kind === "interchange" ? 1 : e.kind === "area" ? 2 : e.kind === "street" ? 3 + (e.tier || 3) : 2;
+        const c = [...q].sort((e, t) => d(e) - d(t) || z.position.distanceTo(e.p) - z.position.distanceTo(t.p));
+        for (const i of c) {
+            if (i.kind === "landmark") {
+                if (l?.hoverPoint) i.p.copy(l.hoverPoint);
+                i.el.hidden = !l || _ || O === "photo" || !visibility78.visible(i);
+                if (l && i.el.hidden) i.el.dataset.occluded = "true";
+                else delete i.el.dataset.occluded;
+                if (!i.el.hidden) {
+                    const n = Math.min(430, t - 20),
+                        o = 40;
+                    let a = Math.max(n / 2 + 6, Math.min(t - n / 2 - 6, le.x + n / 2 + 15)),
+                        r = le.y - o / 2 - 16;
+                    if (r < o / 2 + 6) r = le.y + o / 2 + 18;
+                    r = Math.max(o / 2 + 6, Math.min(e - o / 2 - 6, r));
+                    i.el.style.left = a + "px";
+                    i.el.style.top = r + "px";
+                    i.el.style.maxWidth = n + "px"
+                }
+                continue
+            }
+            const r = i.p.clone().project(z),
+                s = z.position.distanceTo(i.p);
+            i.el.hidden = !g(i.kind) || ["landmark", "story-place", "rail", "kiosk"].includes(i.kind) && !a || i.kind === "landmark" && !l || O === "photo" || i.kind === "area" && O === "model" || i.kind === "landmark" && s > 11e3 || ["story-place", "rail", "kiosk"].includes(i.kind) && !MobileAtlas.tagsNear(s, e, z.fov) || i.kind === "interchange" && (!E.visible || s > 3e4) || i.kind === "street" && (!E.visible || !Roads.labelVisible(i.tier, s, z.position.y)) || i.kind === "rail" && (!A.visible || s > 3500) || i.kind === "kiosk" && !R.visible || i.kind === "photo" && (O !== "context" || s > 900) || r.z < -1 || r.z > 1 || Math.abs(r.x) > 1 || Math.abs(r.y) > 1;
+            if (!i.el.hidden && !visibility78.visible(i)) {
+                i.el.hidden = true;
+                i.el.dataset.occluded = "true";
+            } else delete i.el.dataset.occluded;
+            if (i.kind === "geography" && O !== "context") i.el.hidden = true;
+            if (!i.el.hidden) {
+                if (i.kind === "street" && o.has(i.el.textContent)) {
+                    i.el.hidden = true;
+                    continue
+                }
+                let a = (r.x + 1) * t / 2,
+                    s = (1 - r.y) * e / 2;
+                const l = a,
+                    d = s,
+                    c = ["story-place", "interchange", "activity-center", "population-center", "geography"].includes(i.kind),
+                    u = Math.min(t - 20, 320, i.el.textContent.length * 6 + 24),
+                    h = MobileAtlas.compact() ? 38 : 30;
+                let m = {
+                    l: a - u / 2,
+                    r: a + u / 2,
+                    t: s - h / 2,
+                    b: s + h / 2
+                };
+                if (c) {
+                    a = Math.max(u / 2 + 5, Math.min(t - u / 2 - 5, a));
+                    const o = [0, -34, 34, -68, 68, -102, 102, -136, 136, -170, 170, -204, 204];
+                    for (const t of o) {
+                        const o = d + t,
+                            i = {
+                                l: a - u / 2,
+                                r: a + u / 2,
+                                t: o - h / 2,
+                                b: o + h / 2
+                            };
+                        if (i.t < 5 || i.b > e - 5 || n.some(e => i.l < e.r && i.r > e.l && i.t < e.b && i.b > e.t)) continue;
+                        s = o;
+                        m = i;
+                        break
+                    }
+                    const r = d - s;
+                    i.el.style.setProperty("--leader-height", Math.max(0, Math.abs(r) - h / 2) + "px");
+                    i.el.style.setProperty("--leader-top", r >= 0 ? "100%" : "auto");
+                    i.el.style.setProperty("--leader-bottom", r < 0 ? "100%" : "auto");
+                    i.el.style.setProperty("--leader-x", l - a + "px")
+                }
+                if (["landmark", "area", "street", "rail", "kiosk", "geography", "story-place", "interchange", "activity-center", "population-center"].includes(i.kind) && n.some(e => m.l < e.r && m.r > e.l && m.t < e.b && m.b > e.t)) {
+                    i.el.hidden = true;
+                    continue
+                }
+                if (["landmark", "area", "street", "rail", "kiosk", "geography", "story-place", "interchange", "activity-center", "population-center"].includes(i.kind)) n.push(m);
+                if (i.kind === "street") o.add(i.el.textContent);
+                i.el.style.left = a + "px";
+                i.el.style.top = s + "px"
+            }
+        }
+        de?.update();
+        visibility78.stats();
+        i.dataset.visibleRoadLabels = String(q.filter(e => e.kind === "street" && !e.el.hidden).length);
+        i.dataset.visibleStoryPlaceTags = String(q.filter(e => e.kind === "story-place" && !e.el.hidden).length)
+    }
+    let me = null,
+        pe = [],
+        fe = false,
+        ge = 0,
+        ye = 0;
+
+    function be() {
+        ge = performance.now()
+    }
+
+    function we(e) {
+        if (e.detailReady || !e.detailFactory || e.detailQueued) return;
+        e.detailQueued = true;
+        pe.push(e);
+        if (me === null) me = setTimeout(xe, 180)
+    }
+
+    function xe() {
+        me = null;
+        if (fe || N || performance.now() - ge < 160) {
+            me = setTimeout(xe, 180);
+            return
+        }
+        let e;
+        while (pe.length) {
+            const t = pe.shift();
+            t.detailQueued = false;
+            if (t.group.parent === B && !t.detailReady && t.group.visible && z.position.distanceTo(t.bounds.center) < (w ? 160 : t.building.pilot72 ? 240 : t.building.landmarkArchitecture ? 500 : 320)) {
+                e = t;
+                break
+            }
+        }
+        if (e) {
+            const t = e.mesh;
+            try {
+                const n = e.detailFactory();
+                n.name = "architecture-detail";
+                n.userData = {
+                    building: e.building
+                };
+                t.castShadow = false;
+                t.visible = false;
+                e.group.add(n);
+                e.mesh = n;
+                e.detailReady = true;
+                e.detailFactory = null;
+                Z.push(n);
+                n.geometry.computeBoundingBox();
+                e.hoverBox = n.geometry.boundingBox.clone();
+                visibility78.invalidate();
+                ye++;
+                i.dataset.architectureDetailsBuilt = String(ye);
+                Q.invalidate();
+                ke()
+            } catch (n) {
+                e.detailFactory = null;
+                i.dataset.architectureDetailError = String(n?.message || n);
+                t.visible = true
+            }
+        }
+        if (pe.length) me = setTimeout(xe, 32)
+    }
+    k.addEventListener("start", () => {
+        fe = true;
+        be()
+    });
+    k.addEventListener("end", () => {
+        fe = false;
+        be()
+    });
+    i.dataset.architectureLoading = "near-visible-after-interaction";
+    i.dataset.architectureDetailsBuilt = "0";
+    let reconstructionRows102=[],reconstructionEnabled102=false;
+    const reconstructionLayer102=document.createElement("div");reconstructionLayer102.id="street-generated-markers102";document.getElementById("unified-viewport").append(reconstructionLayer102);
+    function reconstructionDraw102(){
+        const enabled=reconstructionEnabled102&&document.getElementById("show-reconstructed102")?.checked===true;
+        reconstructionLayer102.hidden=O==="photo"||!enabled||i.dataset.regionalView==="true";
+        reconstructionLayer102.style.display=reconstructionLayer102.hidden?"none":"";
+        if(reconstructionLayer102.hidden){for(const row of reconstructionRows102)row.element.hidden=true;return;}
+        const occupied=new Map();
+        for(const row of reconstructionRows102){const p=J(row.point),v=new n.Vector3(p.x,3,p.z).project(z),x=(v.x+1)*i.clientWidth/2,y=(1-v.y)*i.clientHeight/2,key=Math.round(x/42)+","+Math.round(y/27);const visible=v.z>=-1&&v.z<=1&&Math.abs(v.x)<1&&Math.abs(v.y)<1&&L>=row.periodStart&&L<=row.periodEnd&&!occupied.has(key);row.element.hidden=!visible;if(visible){row._cluster102=[row];occupied.set(key,row);row.element.textContent="▧ "+row.sceneYear;row.element.style.left=x+"px";row.element.style.top=y+"px";}else if(v.z>=-1&&v.z<=1&&Math.abs(v.x)<1&&Math.abs(v.y)<1&&L>=row.periodStart&&L<=row.periodEnd&&occupied.has(key)){const first=occupied.get(key);first._cluster102.push(row);first.element.textContent="▧ "+first.sceneYear+" · "+first._cluster102.length;}}
+    }
+    const Me = new n.Frustum,
+        ve = new n.Matrix4;
+
+    function Se() {
+        const e = performance.now(),
+            t = Q.update();
+        compass80.update();
+        reconstructionDraw102();
+        P.visible = !c && O === "context";
+        z.updateMatrixWorld();
+        Me.setFromProjectionMatrix(ve.multiplyMatrices(z.projectionMatrix, z.matrixWorldInverse));
+        for (const e of X) {
+            const n = (!G || e.building.id !== D) && (Me.intersectsSphere(e.bounds) || Q.keepCaster(e, t));
+            e.group.visible = n;
+            if (n && w && !e.building.isLandmark) {
+                const t = z.position.distanceTo(e.bounds.center),
+                    n = e.building.height * i.clientHeight / (Math.max(1, t) * .828);
+                e.group.visible = n >= 1.2
+            }
+            if ((e.building.coreArchitecture || e.building.landmarkArchitecture) && e.mesh) {
+                const t = e.group.getObjectByName("core-coarse"),
+                    n = z.position.distanceTo(e.bounds.center) < (w ? 160 : e.building.pilot72 ? 240 : e.building.landmarkArchitecture ? 500 : 320);
+                if (!w && n && e.group.visible && !e.detailReady) we(e);
+                if (e.detailReady) {
+                    e.mesh.visible = n;
+                    if (t) t.visible = !n
+                } else if (t) t.visible = true
+            }
+            if (e.edge) e.edge.visible = !e.building.landmarkArchitecture && !e.building.coreArchitecture && z.position.distanceTo(e.bounds.center) < (Q.isActive() ? 360 : 1400)
+        }
+        b.render(x, z);
+        u?.draw();
+        he();
+        if (Q.afterFrame(e, performance.now())) ke()
+    }
+    let ze = null;
+
+    function ke() {
+        if (ze === null) ze = requestAnimationFrame(() => {
+            ze = null;
+            Se()
+        })
+    }
+
+    function Ee(e = false) {
+        if (oe) return false;
+        oe = true;
+        let t = false;
+        if (e || !te) {
+            const e = ee.recover(z.position),
+                t = new n.Vector3(e.x - z.position.x, e.y - z.position.y, e.z - z.position.z);
+            z.position.set(e.x, e.y, e.z);
+            k.target.add(t)
+        } else {
+            const e = ee.sweep(te, z.position);
+            t = e.blocked;
+            if (t) {
+                const t = k.target.clone();
+                z.position.set(e.point.x, e.point.y, e.point.z);
+                k.target.lerpVectors(ne, t, e.fraction)
+            }
+        }
+        k.update();
+        te = z.position.clone();
+        ne = k.target.clone();
+        oe = false;
+        i.dataset.cameraBlocked = String(t);
+        i.dataset.cameraClearance = ee.free(z.position).toFixed(3);
+        i.dataset.cameraPosition = [z.position.x, z.position.y, z.position.z].map(e => e.toFixed(3)).join(",");
+        if (t) {
+            const e = document.getElementById("collision-hint");
+            e.hidden = false;
+            clearTimeout(Ae);
+            Ae = setTimeout(() => e.hidden = true, 2500)
+        }
+        return t
+    }
+    let Ae = null;
+
+    function Re() {
+        Q.invalidate();
+        const e = X.filter(e => e.status.showVolume && e.building.id !== D).flatMap(e => Chronology.footprints(e.building).map(t => ({
+            polygon: t[0].map(J),
+            holes: t.slice(1).map(e => e.map(J)),
+            height: e.building.height
+        })));
+        if (G) {
+            G.updateMatrixWorld(true);
+            const t = (new n.Box3).setFromObject(G);
+            e.push({
+                polygon: [{
+                    x: t.min.x,
+                    z: t.min.z
+                }, {
+                    x: t.max.x,
+                    z: t.min.z
+                }, {
+                    x: t.max.x,
+                    z: t.max.z
+                }, {
+                    x: t.min.x,
+                    z: t.max.z
+                }],
+                minY: t.min.y,
+                maxY: t.max.y
+            })
+        }
+        ee.set(e);
+        visibility78.reset(X, [G, E, A, R]);
+        visibility78.owners(q, (e, p) => Chronology.contains(e.building, $(p)));
+        i.dataset.cameraColliders = String(ee.count());
+        Ee(true)
+    }
+
+    function Ce() {
+        be();
+        if (oe) return;
+        const e = Ee();
+        if (e && N) Pe();
+        le = null;
+        ke();
+        ae("reconstruction-view-changed")
+    }
+    k.addEventListener("change", Ce);
+    const Be = MobileAtlas.createResizer({
+        measure: () => [i.clientWidth, i.clientHeight, w ? 1 : MobileAtlas.pixelRatio(devicePixelRatio, MobileAtlas.compact())],
+        apply: (e, t, n) => {
+            if (w) b.setSize(e, t);
+            else b.setDrawingBufferSize(e, t, n);
+            i.dataset.renderPixelRatio = String(n);
+            i.dataset.viewportSize = e + "x" + t;
+            i.dataset.viewportResizes = String(Number(i.dataset.viewportResizes || 0) + 1);
+            z.aspect = e / t;
+            street77.resize();
+            u?.size(e, t);
+            Se()
+        }
+    });
+
+    function Ie() {
+        Be.flush()
+    }
+    new ResizeObserver(() => Be.schedule()).observe(i);
+    document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) ke()
+    });
+    b.domElement.addEventListener("webglcontextlost", e => {
+        e.preventDefault();
+        i.dataset.contextState = "lost"
+    });
+    b.domElement.addEventListener("webglcontextrestored", () => {
+        i.dataset.contextState = "ready";
+        Q.invalidate();
+        ke()
+    });
+
+    function Pe() {
+        if(flightCleanup80){const done=flightCleanup80;flightCleanup80=null;done(false);}
+        if (_e) {
+            const e = _e;
+            _e = null;
+            i.dataset.travelState = "stopped";
+            e(false)
+        }
+        Y++;
+        if (N) cancelAnimationFrame(N);
+        N = null;
+        k.enabled = !_ && (!MobileAtlas.compact() || ce);
+        i.removeAttribute("aria-busy")
+    }
+    k.addEventListener("start", Pe);
+
+    function Te(eye, target, duration=1350, enteringStreet=false) {
+        Pe();
+        const ticket=Y,start=z.position.clone(),initialTarget=k.target.clone(),initialRotation=z.quaternion.clone(),initialFov=z.fov;
+        street77.sync(O);
+        if(enteringStreet)street77.resetLens();
+        const finalFov=z.fov,polar=[k.minPolarAngle,k.maxPolarAngle],finalCamera=z.clone();
+        finalCamera.position.copy(eye);finalCamera.lookAt(target);
+        const finalRotation=finalCamera.quaternion.clone(),startDistance=start.distanceTo(initialTarget),endDistance=eye.distanceTo(target);
+        const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const restore=finished=>{
+            k.minPolarAngle=polar[0];k.maxPolarAngle=polar[1];
+            i.dataset.cameraTransition=finished?'complete':'interrupted';
+            if(finished){z.fov=finalFov;z.updateProjectionMatrix();street77.resize();}
+            k.enabled=!_&&(!MobileAtlas.compact()||ce);i.removeAttribute('aria-busy');
+        };
+        if(reduced||duration===0||MobileAtlas.compact()&&!i.dataset.cameraInitialized){
+            z.position.copy(eye);k.target.copy(target);te=null;ne=null;k.update();
+            i.dataset.cameraInitialized='true';restore(true);Se();return;
+        }
+        k.minPolarAngle=0;k.maxPolarAngle=Math.PI-1e-6;k.enabled=false;
+        z.fov=initialFov;z.updateProjectionMatrix();
+        flightCleanup80=restore;i.setAttribute('aria-busy','true');i.dataset.cameraTransition='running';i.dataset.transitionDurationMs=String(duration);
+        let cruise=Math.max(start.y,eye.y),lift=false;
+        if(enteringStreet){
+            const dx=eye.x-start.x,dz=eye.z-start.z,length=dx*dx+dz*dz;
+            for(const row of X){
+                if(!row.status.showVolume)continue;
+                const p=row.bounds.center,u=length?Math.max(0,Math.min(1,((p.x-start.x)*dx+(p.z-start.z)*dz)/length)):0;
+                if(Math.hypot(p.x-start.x-u*dx,p.z-start.z-u*dz)<row.bounds.radius+8)cruise=Math.max(cruise,(row.building.height||0)+12);
+            }
+            lift=cruise>start.y+.1;i.dataset.transitionCruiseHeight=cruise.toFixed(2);
+        }
+        const smooth=t=>t*t*t*(t*(t*6-15)+10),direction=new n.Vector3(),began=performance.now();
+        function frame(now){
+            if(ticket!==Y)return;
+            const progress=Math.min(1,(now-began)/duration),blend=smooth(progress);
+            if(enteringStreet){
+                const liftEnd=lift?.18:0,travelEnd=.58;
+                if(lift&&progress<liftEnd)z.position.set(start.x,start.y+(cruise-start.y)*smooth(progress/liftEnd),start.z);
+                else if(progress<travelEnd){const u=smooth((progress-liftEnd)/(travelEnd-liftEnd));z.position.set(start.x+(eye.x-start.x)*u,cruise,start.z+(eye.z-start.z)*u);}
+                else {const u=smooth((progress-travelEnd)/(1-travelEnd));z.position.set(eye.x,cruise+(eye.y-cruise)*u,eye.z);}
+            }else z.position.lerpVectors(start,eye,blend);
+            z.quaternion.slerpQuaternions(initialRotation,finalRotation,blend);
+            direction.set(0,0,-1).applyQuaternion(z.quaternion);
+            k.target.copy(z.position).addScaledVector(direction,startDistance+(endDistance-startDistance)*blend);
+            z.fov=initialFov+(finalFov-initialFov)*blend;z.updateProjectionMatrix();
+            i.dataset.transitionProgress=progress.toFixed(3);k.update();
+            if(ticket!==Y)return;
+            ke();
+            if(progress<1)N=requestAnimationFrame(frame);
+            else {
+                N=null;flightCleanup80=null;z.position.copy(eye);k.target.copy(target);restore(true);k.update();
+                ke();ae('atlas-flight-complete',{mode:O});
+            }
+        }
+        ae('reconstruction-view-changed');N=requestAnimationFrame(frame);
+    }
+
+    function Ve(e, t, o, a = false, i = .45) {
+        const r = e.map(e => {
+            const t = J(e);
+            return new n.Vector3(t.x, i, t.z)
+        });
+        if (a) r.push(r[0].clone());
+        const s = new n.Line((new n.BufferGeometry).setFromPoints(r), new n.LineBasicMaterial({
+            color: t
+        }));
+        o.add(s);
+        return s
+    }
+    const Le = new n.Mesh(new n.PlaneGeometry(18e3, 18e3), new n.MeshBasicMaterial({
+        color: "#e3e7db",
+        side: n.DoubleSide
+    }));
+    Le.rotation.x = -Math.PI / 2;
+    Le.position.y = RoadGrade.ground;
+
+    function Ge() {
+        q.filter(e => ["story-place", "interchange"].includes(e.kind)).forEach(e => e.el.remove());
+        q = q.filter(e => !["story-place", "interchange"].includes(e.kind));
+        for (const e of [...s.storyPlaces || [], ...s.interchanges || []]) {
+            const t = e.periods.find(e => L >= e.from && L <= e.through);
+            if (!t) continue;
+            const n = J(e.point),
+                o = e.kind === "interchange" ? "interchange" : "story-place",
+                a = se(AtlasI18n.language() === "zh" && t.labelZh || t.label || e.name, {
+                    x: n.x,
+                    y: e.tagHeight || 19,
+                    z: n.z
+                }, o, () => ae("atlas-story-place", {
+                    place: e,
+                    active: t,
+                    year: L
+                }));
+            a.el.dataset.noTranslate = "";
+            a.el.dataset.placeId = e.id;
+            a.el.dataset.uncertain = String(!!t.uncertain);
+            a.el.title = (t.from === t.through ? t.from : t.from + "–" + t.through) + " · " + (AtlasI18n.language() === "zh" && t.noteZh || t.note)
+        }
+        i.dataset.storyPlaceTags = String(q.filter(e => e.kind === "story-place").length);
+        i.dataset.interchangeTags = String(q.filter(e => e.kind === "interchange").length)
+    }
+
+    function Fe(e) {
+        q.filter(e => ["activity-center", "population-center"].includes(e.kind)).forEach(e => e.el.remove());
+        q = q.filter(e => !["activity-center", "population-center"].includes(e.kind));
+        const t = window.AtlasI18n?.language() === "zh";
+        for (const n of e?.centers || []) {
+            const o = J(n.point),
+                a = se(n.year + " · " + (t ? n.nameZh : n.name), {
+                    x: o.x,
+                    y: 12,
+                    z: o.z
+                }, "activity-center", () => e.inspect(n));
+            a.el.setAttribute("data-no-translate", "");
+            a.el.dataset.centerId = n.id;
+            a.el.title = t ? n.noteZh : n.note
+        }
+        const n = e?.populationCenters || [],
+            o = n[n.length - 1];
+        if (o) {
+            const e = J(o.point),
+                n = se("◆ " + o.label + " · " + (t ? "人口重心" : "population center"), {
+                    x: e.x,
+                    y: 14,
+                    z: e.z
+                }, "population-center");
+            n.el.setAttribute("data-no-translate", "");
+            n.el.title = t ? "普查小区几何中心按人口估计加权；不是迁移人数。" : "Tract geometry centroids weighted by resident estimates; not migration counts."
+        }
+        i.dataset.activityCenterTags = String(e?.centers?.length || 0);
+        i.dataset.populationCenters = String(n.length);
+        Se()
+    }
+
+    function De() {
+        q.filter(e => e.kind === "area").forEach(e => e.el.remove());
+        q = q.filter(e => e.kind !== "area");
+        for (const e of AtlasLayers.community(l, L)) {
+            const t = s.areas.find(t => t.id === e.district),
+                n = J(t.center),
+                o = se(t.name, {
+                    x: n.x,
+                    y: 55,
+                    z: n.z
+                }, "area", () => ae("atlas-area", {
+                    district: t.id
+                }));
+            o.el.style.background = {
+                high: "#d87099",
+                medium: "#e8aac2",
+                low: "#f5d7e3"
+            } [e.level];
+            o.el.style.color = "#352b30";
+            o.el.dataset.activity = e.level;
+            o.el.dataset.district = e.district;
+            o.el.title = e.note
+        }
+    }
+
+    function je() {
+        re(A);
+        q.filter(e => e.kind === "rail" || e.kind === "kiosk").forEach(e => e.el.remove());
+        q = q.filter(e => e.kind !== "rail" && e.kind !== "kiosk");
+        const e = AtlasLayers.transports(s, L);
+        for (const t of e) {
+            const e = t.elevation || .65;
+            Ve(t.points, y.rail, A, false, e);
+            if (t.kind === "elevated-rail") {
+                for (let o = 1; o < t.points.length; o++) {
+                    const a = J(t.points[o - 1]),
+                        i = J(t.points[o]),
+                        r = Math.hypot(i.x - a.x, i.z - a.z);
+                    const s = new n.BoxGeometry(4, .6, r);
+                    s.rotateY(Math.atan2(i.x - a.x, i.z - a.z));
+                    s.translate((a.x + i.x) / 2, e - .4, (a.z + i.z) / 2);
+                    A.add(new n.Mesh(s, new n.MeshLambertMaterial({
+                        color: y.rail
+                    })));
+                    if (o % 4 === 1) {
+                        const t = new n.Mesh(new n.BoxGeometry(1.3, e - .7, 1.3), new n.MeshLambertMaterial({
+                            color: y.rail
+                        }));
+                        t.position.set(a.x, (e - .7) / 2, a.z);
+                        A.add(t)
+                    }
+                }
+            }
+            if (t.points.length > 1) {
+                const o = J(t.points[0]),
+                    a = J(t.points[t.points.length - 1]),
+                    i = a.x - o.x,
+                    r = a.z - o.z,
+                    s = Math.hypot(i, r);
+                if (s) {
+                    const o = 1.5;
+                    for (const a of [-1, 1]) {
+                        const l = t.points.map(t => {
+                            const l = J(t);
+                            return new n.Vector3(l.x + a * r / s * o, e + .2, l.z - a * i / s * o)
+                        });
+                        A.add(new n.Line((new n.BufferGeometry).setFromPoints(l), new n.LineBasicMaterial({
+                            color: y.rail
+                        })))
+                    }
+                }
+            }
+        }
+        for (const e of (s.railStations || []).filter(e => AtlasLayers.interval(e, L))) {
+            const t = J(e.point),
+                o = new n.Mesh(new n.BoxGeometry(8, 2, 8), new n.MeshBasicMaterial({
+                    color: y.rail
+                }));
+            o.position.set(t.x, 1.5, t.z);
+            A.add(o);
+            se(e.name, {
+                x: t.x,
+                y: 12,
+                z: t.z
+            }, "rail")
+        }
+        re(R);
+        for (const e of (s.landmarks || []).filter(e => AtlasLayers.interval(e, L))) {
+            const t = J(e.point),
+                o = new n.Mesh(new n.ConeGeometry(3, 1.3, 4), new n.MeshLambertMaterial({
+                    color: y.chinatown
+                }));
+            o.position.set(t.x, 5, t.z);
+            R.add(o);
+            const a = new n.Mesh(new n.BoxGeometry(.55, 4.5, .55), new n.MeshLambertMaterial({
+                color: y.building
+            }));
+            a.position.set(t.x, 2.25, t.z);
+            R.add(a);
+            const i = se(e.name, {
+                x: t.x,
+                y: 10,
+                z: t.z
+            }, "kiosk", () => ae("atlas-landmark", {
+                landmark: e
+            }));
+            i.el.title = e.note
+        }
+        A.visible = p;
+        R.visible = m;
+        i.dataset.railRoutes = String(e.length);
+        i.dataset.cassParkReview = "59";
+        i.dataset.kioskCount = String(R.children.length);
+        i.dataset.kioskPosition = (s.landmarks || []).find(e => e.id === "chinatown-kiosk")?.point.join(",") || ""
+    }
+
+    function He() {
+        re(E);
+        q.filter(e => e.kind === "street").forEach(e => e.el.remove());
+        q = q.filter(e => e.kind !== "street");
+        const e = Roads.visible(s, L),
+            t = Roads.rightOfWay(s, L),
+            o = Roads.changes(s, L);
+        E.visible = h;
+        const r = new Map,
+            l = new Set;
+        let d = -Infinity,
+            c = 0,
+            u = 0;
+
+        function m(e, t, n, o) {
+            RoadGrade.place(t, e);
+            t.computeBoundingBox();
+            if (t.boundingBox.max.y <= RoadGrade.top + 1e-5) {
+                d = Math.max(d, t.boundingBox.max.y);
+                c++
+            } else u++;
+            p(n, o, t)
+        }
+
+        function p(e, t, o, a = null, i = n.DoubleSide) {
+            o.computeBoundingBox();
+            const s = a ?? (w && o.boundingBox.max.y <= 3 ? -1 : 0),
+                l = e + "|" + t + "|" + s + "|" + i;
+            if (!r.has(l)) r.set(l, {
+                color: e,
+                opacity: t,
+                renderOrder: s,
+                side: i,
+                geometries: []
+            });
+            if (o.index) {
+                const e = o;
+                o = o.toNonIndexed();
+                e.dispose()
+            }
+            r.get(l).geometries.push(o)
+        }
+
+        function f(e, t, n = false) {
+            if (!RoadConnectivity.labelAllowed(e)) return;
+            if (e.historical_trace && e.name === "Alley") return;
+            const o = J(t);
+            o.y = 3;
+            const a = e.name + "|" + Math.round(o.x / 500) + "|" + Math.round(o.z / 500);
+            if (l.has(a)) return;
+            l.add(a);
+            const i = se(e.name, o, "street");
+            i.tier = Roads.labelTier(e);
+            i.el.style.fontSize = (i.tier === 1 ? 12 : i.tier === 2 ? 11 : 10) + "px";
+            i.el.style.fontWeight = i.tier === 1 ? "600" : "400";
+            i.el.title = e.physicalFreeway ? e.name + " · " + e.width + " m carriageway reference · " + e.grade + " · relative road surface " + Math.min(...e.topHeights).toFixed(1) + " to " + Math.max(...e.topHeights).toFixed(1) + " m; derived profile. Click source dots for measured bridge dimensions." : e.name + " · " + (e.event_date || e.source_year) + (e.event_type ? " · " + e.event_type + " record" : "");
+            i.el.style.color = e.kind === "freeway" ? y.freeway : n ? y.surviving : "#376276"
+        }
+        FreewayModel.build({
+            THREE: n,
+            data: s,
+            year: L,
+            pos: J,
+            batch: p,
+            host: i,
+            vector: w
+        });
+        RoadConnectivity.build({
+            THREE: n,
+            year: L,
+            pos: J,
+            pavement: m,
+            color: y.road,
+            host: i
+        });
+        for (const t of [...e].sort((e, t) => Number(!!t.historical_trace) - Number(!!e.historical_trace))) {
+            const e = Roads.continuous(t, L),
+                o = t.kind === "freeway" ? y.freeway : e ? y.surviving : y.road,
+                a = 1;
+            if (t.physicalFreeway) {
+                for (const e of Roads.labelPoints(t)) f(t, e);
+                continue
+            }
+            const i = s.roadSurfaces?.years[String(L)]?.[t.id],
+                r = FreewayModel.surface(s, L, t.id) || (i ? s.roadSurfaces.geometries[i] : null);
+            if (r) {
+                const i = r.segments || [{
+                    polygons: r.polygons,
+                    ay: RoadGrade.legacyCenter(t),
+                    by: RoadGrade.legacyCenter(t)
+                }];
+                for (const e of i)
+                    for (const i of e.polygons) {
+                        const r = new n.Shape;
+                        i[0].map(J).forEach((e, t) => t ? r.lineTo(e.x, -e.z) : r.moveTo(e.x, -e.z));
+                        r.closePath();
+                        for (const e of i.slice(1)) {
+                            const t = new n.Path;
+                            e.map(J).forEach((e, n) => n ? t.lineTo(e.x, -e.z) : t.moveTo(e.x, -e.z));
+                            t.closePath();
+                            r.holes.push(t)
+                        }
+                        const s = new n.ExtrudeGeometry(r, {
+                            depth: .3,
+                            bevelEnabled: false
+                        });
+                        s.rotateX(-Math.PI / 2);
+                        if (e.a) {
+                            const t = J(e.a),
+                                n = J(e.b),
+                                o = n.x - t.x,
+                                a = n.z - t.z,
+                                i = o * o + a * a,
+                                r = s.attributes.position;
+                            for (let n = 0; n < r.count; n++) {
+                                const s = Math.max(0, Math.min(1, ((r.getX(n) - t.x) * o + (r.getZ(n) - t.z) * a) / i));
+                                r.setY(n, r.getY(n) + e.ay - .15 + s * (e.by - e.ay))
+                            }
+                            r.needsUpdate = true;
+                            s.computeVertexNormals()
+                        } else s.translate(0, RoadGrade.legacyCenter(t) - RoadGrade.thickness / 2, 0);
+                        m(t, s, o, a)
+                    }
+                for (const n of Roads.labelPoints(t, r)) f(t, n, e);
+                continue
+            }
+            for (let e = 1; e < t.points.length; e++) {
+                const i = J(t.points[e - 1]),
+                    r = J(t.points[e]),
+                    l = t.elevations?.[e - 1] ?? t.elevation ?? RoadGrade.legacyCenter(t),
+                    d = t.elevations?.[e] ?? t.elevation ?? RoadGrade.legacyCenter(t),
+                    c = r.x - i.x,
+                    u = r.z - i.z,
+                    h = Math.hypot(c, u);
+                if (h < .1) continue;
+                const f = new n.BoxGeometry(t.width, .3, h);
+                f.rotateY(Math.atan2(c, u));
+                f.translate((i.x + r.x) / 2, 0, (i.z + r.z) / 2);
+                const g = f.attributes.position;
+                for (let e = 0; e < g.count; e++) {
+                    const t = Math.max(0, Math.min(1, ((g.getX(e) - i.x) * c + (g.getZ(e) - i.z) * u) / (h * h)));
+                    g.setY(e, g.getY(e) + l + t * (d - l))
+                }
+                f.computeVertexNormals();
+                m(t, f, o, a);
+                if (l > 3 && e % 3 === 1 && !s.supportReview?.years?.[L]?.[t.id]?.includes(e)) {
+                    const e = RoadGrade.center(t, l) - RoadGrade.thickness / 2,
+                        a = Math.max(0, e - RoadGrade.ground);
+                    const r = new n.BoxGeometry(1.8, a, 1.8);
+                    r.translate(i.x, RoadGrade.ground + a / 2, i.z);
+                    p(o, 1, r)
+                }
+            }
+            for (const n of Roads.labelPoints(t)) f(t, n, e)
+        }
+        for (const e of r.values()) {
+            if (!e.geometries.length) continue;
+            const t = a(e.geometries, false);
+            e.geometries.forEach(e => e.dispose());
+            if (!t) throw new Error("Road geometry batch failed");
+            const o = new n.Mesh(t, new n.MeshLambertMaterial({
+                color: e.color,
+                side: e.side,
+                transparent: false,
+                opacity: 1,
+                depthWrite: true
+            }));
+            o.renderOrder = e.renderOrder;
+            E.add(o)
+        }
+        i.dataset.pavementDatum = String(RoadGrade.top);
+        i.dataset.pavementFlatTop = String(Number.isFinite(d) ? d : RoadGrade.top);
+        i.dataset.pavementFlatCount = String(c);
+        i.dataset.pavementElevatedCount = String(u);
+        i.dataset.pavementBaseGap = String(-RoadGrade.top);
+        i.dataset.roadFootprints = "0";
+        i.dataset.roadTraces = "0";
+        i.dataset.roadAdjustedSurfaces = String(Object.keys(s.roadSurfaces?.years[String(L)] || {}).length);
+        i.dataset.roadYear = String(L);
+        i.dataset.roadReview = s.roadSurfaces?.version || "";
+        i.dataset.mapAlignedRoads = String(s.roadAlignmentReview?.years?.[L]?.length || 0);
+        i.dataset.roadAlignedMasses = String(Object.keys(s.roadAlignmentReview?.buildingYears?.[L] || {}).length);
+        i.dataset.roadClearance = String(s.roadSurfaces?.clearance_m || 0);
+        i.dataset.roadInterruptedSegments = String(s.roadDisplayReview?.years?.[L]?.interrupted_segments || 0);
+        i.dataset.roadOpacity = "1";
+        i.dataset.roadStyle = "filled"
+    }
+
+    function Oe() {
+        coast78.year(L);
+        for (const e of pe) e.detailQueued = false;
+        pe = [];
+        if (me !== null) {
+            clearTimeout(me);
+            me = null
+        }
+        be();
+        Q.invalidate();
+        q.filter(e => e.kind === "landmark").forEach(e => e.el.remove());
+        q = q.filter(e => e.kind !== "landmark");
+        const e = new Set;
+        u?.setYear(L);
+        He();
+        De();
+        je();
+        Ge();
+        const t = new Map(X.map(e => [e.building.id, e]));
+        B.clear();
+        X = [];
+        Z = [];
+        for (const e of Chronology.visibleBuildings(s, l, L)) {
+            const o = LandmarkArchitecture.apply(CoreArchitecture.apply(HistoricDetroitPilot.apply(e, L), L), L);
+            const i = Chronology.state(o, L, l),
+                r = Chronology.footprints(o).flatMap(e => e[0].map(J));
+            if (i.status === "not-built" || !i.showVolume && i.status === "unresolved" || i.status === "demolished" && !Chronology.showTrace(o, L, l)) continue;
+            const s = Chronology.appearance(o, i, L, l),
+                d = [o.id, o.landmarkArchitecture?.id || "", o.landmarkArchitecture?.phaseKey || "", o.coreArchitecture?.id || "", o.coreArchitecture?.variant || "", o.geometryRevision || "", o.periodNote || "", i.showVolume, i.status === "demolished", s.color, s.opacity].join("|"),
+                c = t.get(o.id);
+            if (c?.cacheKey === d) {
+                t.delete(o.id);
+                c.building = o;
+                c.status = i;
+                c.group.userData = {
+                    building: o,
+                    status: i
+                };
+                if (c.mesh) {
+                    c.mesh.userData = {
+                        building: o
+                    };
+                    Z.push(c.mesh);
+                    const e = c.group.getObjectByName("core-coarse");
+                    if (e && e !== c.mesh) {
+                        e.userData = {
+                            building: o
+                        };
+                        Z.push(e)
+                    }
+                }
+                B.add(c.group);
+                X.push(c);
+                continue
+            }
+            const u = Chronology.footprints(o).map(e => {
+                const t = new n.Shape;
+                e[0].map(J).forEach((e, n) => n ? t.lineTo(e.x, -e.z) : t.moveTo(e.x, -e.z));
+                t.closePath();
+                for (const o of e.slice(1)) {
+                    const e = new n.Path;
+                    o.map(J).forEach((t, n) => n ? e.lineTo(t.x, -t.z) : e.moveTo(t.x, -t.z));
+                    e.closePath();
+                    t.holes.push(e)
+                }
+                return t
+            });
+            const h = new n.Group;
+            B.add(h);
+            h.userData = {
+                building: o,
+                status: i
+            };
+            const m = new n.MeshLambertMaterial({
+                color: s.color,
+                transparent: s.opacity < 1,
+                opacity: s.opacity,
+                depthWrite: s.opacity === 1
+            });
+            let p = null,
+                f = null;
+            if (i.showVolume) {
+                if (o.landmarkArchitecture || o.coreArchitecture) {
+                    m.dispose();
+                    const e = {
+                        THREE: n,
+                        mergeGeometries: a,
+                        shapes: u,
+                        rings: Chronology.footprints(o)[0].map(e => e.map(J)),
+                        building: o,
+                        profile: o.landmarkArchitecture || o.coreArchitecture,
+                        appearance: s,
+                        pos: J
+                    };
+                    if (o.landmarkArchitecture) {
+                        p = LandmarkArchitecture.build({
+                            ...e,
+                            detail: false
+                        });
+                        f = () => LandmarkArchitecture.build(e)
+                    } else {
+                        const t = new n.ExtrudeGeometry(u, {
+                            depth: o.height,
+                            bevelEnabled: false
+                        });
+                        t.rotateX(-Math.PI / 2);
+                        p = new n.Mesh(t, new n.MeshLambertMaterial({
+                            color: s.color,
+                            transparent: s.opacity < 1,
+                            opacity: s.opacity,
+                            depthWrite: s.opacity === 1
+                        }));
+                        f = () => CoreArchitecture.build(e)
+                    }
+                    p.name = "core-coarse"
+                } else {
+                    const e = new n.ExtrudeGeometry(u, {
+                        depth: o.height,
+                        bevelEnabled: false
+                    });
+                    e.rotateX(-Math.PI / 2);
+                    p = new n.Mesh(e, m);
+                    const t = new n.LineSegments(new n.EdgesGeometry(e), new n.LineBasicMaterial({
+                        color: "#89918b",
+                        transparent: true,
+                        opacity: Q.isActive() ? .065 : .24
+                    }));
+                    h.add(t)
+                }
+                p.userData = {
+                    building: o
+                };
+                h.add(p);
+                Z.push(p)
+            } else {
+                m.dispose();
+                for (const e of Chronology.footprints(o)) Ve(e[0], i.status === "demolished" ? "#b26e4a" : "#acb59f", h, true, .4)
+            }
+            const g = o.displayCenter || o.polygon.reduce((e, t) => [e[0] + t[0] / o.polygon.length, e[1] + t[1] / o.polygon.length], [0, 0]);
+            const y = J(g),
+                b = Math.max(...r.map(e => Math.hypot(e.x - y.x, e.z - y.z)), 1) + o.height;
+            X.push({
+                group: h,
+                mesh: p,
+                detailFactory: f,
+                detailReady: false,
+                cacheKey: d,
+                edge: h.children.find(e => e.isLineSegments),
+                bounds: new n.Sphere(new n.Vector3(y.x, o.height / 2, y.z), b),
+                building: o,
+                point: g,
+                status: i
+            });
+            const w = Chronology.entity(o, l),
+                x = Chronology.lifespan(o, l);
+            if (x.longLived && i.showVolume) {
+                const e = X[X.length - 1];
+                e.heritage = w?.name || o.reviewed_name || o.name || "Historic building";
+                p.geometry.computeBoundingBox();
+                e.hoverBox = p.geometry.boundingBox
+            }
+        }
+        for (const e of t.values()) ie(e.group);
+        for (const e of X) {
+            e.addressInfo = BuildingAddress.resolve(s, e.building, L);
+            if (e.mesh) {
+                e.mesh.geometry.computeBoundingBox();
+                e.hoverBox = e.mesh.geometry.boundingBox.clone()
+            } else {
+                const t = Chronology.footprints(e.building).flatMap(e => e[0].map(J));
+                e.hoverBox = (new n.Box3).setFromPoints(t.map(e => new n.Vector3(e.x, 0, e.z)));
+                e.hoverBox.expandByScalar(.25)
+            }
+        }
+        i.dataset.addressLabelMode = "name-occupant-address";
+        i.dataset.addressVersion = s.addressReview?.version || "";
+        i.dataset.addressBuildingCount = String(X.length);
+        i.dataset.addressEmptyCount = String(X.filter(e => !e.addressInfo.primary).length);
+        i.dataset.addressNumberedCount = String(X.filter(e => e.addressInfo.kind !== "street" && e.addressInfo.kind !== "unresolved").length);
+        i.dataset.addressStreetCount = String(X.filter(e => e.addressInfo.kind === "street").length);
+        const o = se("", {
+            x: 0,
+            y: 0,
+            z: 0
+        }, "landmark");
+        o.el.dataset.hoverLandmark = "true";
+        o.el.dataset.buildingAddress = "true";
+        o.el.setAttribute("role", "tooltip");
+        o.el.setAttribute("data-no-translate", "");
+        o.el.style.pointerEvents = "none";
+        o.el.hidden = true;
+        i.dataset.landmarkPhaseSignature = X.filter(e => e.mesh && e.building.landmarkArchitecture).map(e => e.building.id + ":" + e.building.landmarkArchitecture.phaseKey).sort().join("|");
+        i.dataset.landmarkArchitecture = "2026-09-23.73.0";
+        i.dataset.historicDetroitPilot = "2026-09-23.73.0";
+        i.dataset.historicDetroitPilotModels = String(X.filter(e => e.mesh && e.building.pilot71).length);
+        i.dataset.landmarkDetailedBuildings = String(X.filter(e => e.mesh && e.building.landmarkArchitecture).length);
+        i.dataset.landmarkEntities = String(new Set(X.filter(e => e.mesh && e.building.landmarkArchitecture).map(e => e.building.landmarkArchitecture.entity)).size);
+        i.dataset.coreArchitecture = "2026-09-20.49.1";
+        i.dataset.coreDetailedBuildings = String(X.filter(e => e.mesh && e.building.coreArchitecture).length);
+        i.dataset.buildingVolumes = String(X.filter(e => e.mesh).length);
+        i.dataset.geometryReview = s.modelReview?.version || "";
+        i.dataset.historicalMassing = s.historicalMassing?.style || "";
+        i.dataset.boxyBuildingVolumes = String(X.filter(e => e.mesh && e.building.boxyModel).length);
+        i.dataset.boxyComponents = String(X.filter(e => e.mesh && e.building.boxyModel).reduce((e, t) => e + Chronology.footprints(t.building).length, 0));
+        i.dataset.sourceOnlyRecords = String(s.buildings.filter(e => e.representation === "source-ink-only").length);
+        i.dataset.residualVolumes = String(X.filter(e => e.mesh && e.building.representation === "source-ink-only").length);
+        i.dataset.provisionalVolumes = String(X.filter(e => e.mesh && e.building.candidate).length);
+        i.dataset.excludedModels = String(s.modelReview?.years?.[L]?.excluded.length || 0);
+        i.dataset.correctedModels = String(Object.keys(s.modelReview?.years?.[L]?.overrides || {}).length);
+        i.dataset.demolitionTraces = String(X.filter(e => e.status.status === "demolished").length);
+        i.dataset.heritageVolumes = String(X.filter(e => Chronology.lifespan(e.building, l).longLived && e.mesh).length);
+        if (G) et();
+        Re();
+        We(K);
+        Se()
+    }
+
+    function We(e) {
+        K = e;
+        re(I);
+        q.filter(e => e.kind === "photo").forEach(e => e.el.remove());
+        q = q.filter(e => e.kind !== "photo");
+        Se()
+    }
+
+    function Ne() {
+        re(P);
+        if (!V) return;
+        const e = J(V.point),
+            t = new n.Mesh(new n.RingGeometry(V.radius - 1.2, V.radius, 96), new n.MeshBasicMaterial({
+                color: "#a65f41",
+                transparent: true,
+                opacity: .45,
+                side: n.DoubleSide
+            }));
+        t.rotation.x = -Math.PI / 2;
+        t.position.set(e.x, .15, e.z);
+        P.add(t);
+        const o = new n.Mesh(new n.CylinderGeometry(.65, .65, 24, 8), new n.MeshBasicMaterial({
+            color: "#b86740"
+        }));
+        o.position.set(e.x, 12, e.z);
+        P.add(o)
+    }
+
+    function Ye(e, t) {
+        const o = J(e);
+        let a = null;
+        for (const e of Roads.segments(Roads.visible(s, L, t).filter(e => e.kind !== "freeway"))) {
+            const t = J(e.a),
+                n = J(e.b),
+                i = n.x - t.x,
+                r = n.z - t.z,
+                s = Math.max(0, Math.min(1, ((o.x - t.x) * i + (o.z - t.z) * r) / (i * i + r * r))),
+                l = {
+                    x: t.x + s * i,
+                    z: t.z + s * r
+                };
+            const d = Math.hypot(l.x - o.x, l.z - o.z);
+            if (!a || d < a.distance) a = {
+                q: l,
+                dx: i,
+                dz: r,
+                distance: d
+            }
+        }
+        if (!a) return {
+            eye: new n.Vector3(o.x + 30, StreetCamera77.eyeHeight, o.z + 35),
+            target: new n.Vector3(o.x, StreetCamera77.eyeHeight, o.z)
+        };
+        const i = a,
+            r = Math.hypot(i.dx, i.dz),
+            l = new n.Vector3(i.q.x - i.dx / r * 24, StreetCamera77.eyeHeight, i.q.z - i.dz / r * 24);
+        return {
+            eye: l,
+            target: new n.Vector3(o.x, StreetCamera77.eyeHeight, o.z)
+        }
+    }
+    let _e = null;
+
+    function Ue(e, t, o) {
+        Pe();
+        Qe();
+        O = "context";
+        street77.sync(O);
+        i.dataset.regionalView = "false";
+        I.visible = true;
+        P.visible = true;
+        te = null;
+        const a = Y,
+            r = z.position.clone(),
+            s = k.target.clone(),
+            l = J(e),
+            d = X.find(t => Chronology.contains(t.building, e)),
+            c = d && LandmarkArchitecture.profile(d.building, t),
+            u = c?.height || 25,
+            h = c?.facing || [.8, .5],
+            m = Math.max(110, u * 2.7),
+            p = new n.Vector3(l.x + h[0] * m + h[1] * m * .38, Math.max(45, u * 1.3), l.z + h[1] * m - h[0] * m * .38),
+            f = new n.Vector3(l.x, Math.min(28, u * .55), l.z);
+        let g = null;
+
+        function y() {
+            if (g === L) return;
+            g = L;
+            let t = u;
+            const o = [];
+            for (const n of X) {
+                if (!n.status.showVolume) continue;
+                const a = n.bounds.center;
+                if (Math.hypot(a.x - l.x, a.z - l.z) > m + n.bounds.radius + 25) continue;
+                t = Math.max(t, n.building.height || 0);
+                if (Chronology.contains(n.building, e)) continue;
+                for (const e of Chronology.footprints(n.building)) o.push({
+                    polygon: e[0].map(J),
+                    holes: e.slice(1).map(e => e.map(J)),
+                    height: n.building.height
+                })
+            }
+            const a = CameraCollision.create({
+                radius: 1
+            });
+            a.set(o);
+            const r = Math.atan2(p.z - l.z, p.x - l.x),
+                s = Math.hypot(p.x - l.x, p.z - l.z);
+            let d = false;
+            for (const e of [Math.max(90, t + 40), Math.max(150, t * 2 + 50), Math.max(250, t * 3 + 70)]) {
+                for (const t of [0, .25, -.25, .5, -.5, .75, -.75, 1]) {
+                    const o = r + Math.PI * t,
+                        i = new n.Vector3(l.x + Math.cos(o) * s, e, l.z + Math.sin(o) * s);
+                    d = true;
+                    for (let e = 0; e <= 20; e++) {
+                        const t = i.clone().lerp(f, e / 20);
+                        if (a.free(t) < 0) {
+                            d = false;
+                            break
+                        }
+                    }
+                    if (d) {
+                        p.copy(i);
+                        break
+                    }
+                }
+                if (d) break
+            }
+            i.dataset.travelSightClear = String(d);
+            i.dataset.travelArrivalHeight = String(p.y)
+        }
+        y();
+        t = Math.max(1900, Math.min(2026, Math.round(t)));
+        const b = Math.abs(t - L),
+            x = Math.sign(t - L),
+            M = Math.max(1, b),
+            v = b ? 200 : 1100;
+        let S = 0,
+            E = performance.now();
+        k.enabled = false;
+        i.setAttribute("aria-busy", "true");
+        i.dataset.travelState = "running";
+        i.dataset.travelYears = String(L);
+        return new Promise(e => {
+            _e = e;
+
+            function n() {
+                _e = null;
+                N = null;
+                k.enabled = !_ && (!MobileAtlas.compact() || ce);
+                i.removeAttribute("aria-busy");
+                i.dataset.travelState = "arrived";
+                Se();
+                e(true)
+            }
+            if (w || MobileAtlas.compact() || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+                $e(t);
+                o(t);
+                i.dataset.travelYears = String(t);
+                y();
+                z.position.copy(p);
+                k.target.copy(f);
+                k.update();
+                n();
+                return
+            }
+
+            function l(e) {
+                if (a !== Y) return;
+                let t = Math.min(1, (e - E) / v);
+                if (t >= 1) {
+                    if (b) {
+                        $e(L + x);
+                        o(L);
+                        i.dataset.travelYears += "," + L
+                    }
+                    S++;
+                    E = performance.now();
+                    t = 0
+                }
+                const d = Math.min(1, (S + t) / M),
+                    c = d * d * (3 - 2 * d);
+                y();
+                z.position.lerpVectors(r, p, c);
+                z.position.y += Math.sin(Math.PI * d) * Math.max(40, p.y * .35);
+                k.target.lerpVectors(s, f, c);
+                k.update();
+                if (a !== Y) return;
+                if (S >= M) {
+                    z.position.copy(p);
+                    k.target.copy(f);
+                    k.update();
+                    n()
+                } else N = requestAnimationFrame(l)
+            }
+            N = requestAnimationFrame(l)
+        })
+    }
+
+    function qe(e, t = 1200) {
+        i.dataset.regionalView = "false";
+        O = "context";
+        I.visible = true;
+        P.visible = true;
+        const o = s.areas.find(t => t.id === e),
+            a = s.areas.flatMap(e => e.polygon.map(J)),
+            r = a.map(e => e.x),
+            l = a.map(e => e.z),
+            d = o ? J(o.center) : {
+                x: (Math.min(...r) + Math.max(...r)) / 2,
+                z: (Math.min(...l) + Math.max(...l)) / 2
+            },
+            c = i.clientWidth / Math.max(1, i.clientHeight),
+            u = o ? Math.max(850, 650 / c) : Math.max(2500, 2200 / c);
+        const h = o ? new n.Vector3(d.x + u * .16, u * 1.05, d.z + u * .48) : new n.Vector3(d.x - u * .58, u * .9, d.z + u * .82);
+        Te(h, new n.Vector3(d.x, 0, d.z), t)
+    }
+
+    function Xe() {
+        if (!V) return;
+        pt.stop();
+        street77.cancel();
+        i.dataset.regionalView = "false";
+        O = "street";
+        I.visible = false;
+        P.visible = false;
+        const e = Ye(F || V.point, V.district);
+        const safe = ee.recover(e.eye),
+            dx = safe.x - e.eye.x,
+            dz = safe.z - e.eye.z;
+        e.eye.set(safe.x, safe.y, safe.z);
+        e.target.x += dx;
+        e.target.z += dz;
+        e.target.y = safe.y;
+        te = null;
+        ne = null;
+        Te(e.eye, e.target, 1650, true);
+        i.dataset.streetEntryEyeHeight = e.eye.y.toFixed(3);
+        i.dataset.cameraPitchDegrees = "0.000";
+        ut();
+        b.domElement.focus({
+            preventScroll: true
+        });
+    }
+
+    function Ze() {
+        if (!G) return Xe();
+        O = "model";
+        I.visible = false;
+        P.visible = false;
+        const e = J(F),
+            t = H || {
+                angle: 0,
+                width: 28,
+                height: 12
+            },
+            o = Math.max(22, t.width * 1.7, t.height * 2.5),
+            a = t.angle;
+        Te(new n.Vector3(e.x + o * (-Math.sin(a) + .3 * Math.cos(a)), Math.max(8, t.height * 1.3), e.z + o * (Math.cos(a) + .3 * Math.sin(a))), new n.Vector3(e.x, t.height * .4, e.z), 950)
+    }
+
+    function Ke(e) {
+        if (e === "context") qe(V?.district);
+        else if (e === "street") Xe();
+        else if (e === "model") Ze();
+        else {
+            O = "photo";
+            Pe();
+            Se()
+        }
+    }
+
+    function Qe() {
+        Q.invalidate();
+        const e = !!G;
+        W++;
+        if (G) {
+            C.remove(G);
+            ie(G)
+        }
+        G = null;
+        F = null;
+        D = null;
+        X.forEach(e => e.group.visible = true);
+        if (e) Re()
+    }
+
+    function Je(e, t = {}) {
+        const n = L;
+        const o = t.keepModel && V && Spatial.same(e, V);
+        if (!o) Qe();
+        V = e;
+        L = Math.max(1900, Math.min(2026, e.year));
+        if (O === "photo" || O === "model") O = "street";
+        if (n !== L) Oe();
+        Ne();
+        I.visible = O === "context";
+        P.visible = O === "context";
+        if (t.flight === false) {
+            street77.sync(O);
+            Se();
+            return
+        }
+        Xe()
+    }
+
+    function $e(e) {
+        e = Math.max(1900, Math.min(2026, e));
+        L = e;
+        if (V) V = {
+            ...V,
+            year: e
+        };
+        Qe();
+        Oe();
+        Se()
+    }
+
+    function et() {
+        if (!G) return;
+        for (const e of X) e.group.visible = e.building.id !== D
+    }
+    async function tt(t, o) {
+        const a = W;
+        const {
+            GLTFLoader: i
+        } = await (import("three/addons/loaders/GLTFLoader.js"));
+        const r = await new Promise((e, n) => (new i).parse(t, "", t => e(t.scene), n));
+        if (W !== a) {
+            ie(r);
+            return false
+        }
+        const s = V?.point || o.spatial.point,
+            l = X.filter(e => !V || e.building.district === V.district),
+            d = l.find(e => Chronology.contains(e.building, s)) || l.sort((e, t) => Spatial.distance(e.point, s) - Spatial.distance(t.point, s))[0];
+        if (!d) {
+            ie(r);
+            throw Error("Choose a building footprint before aligning a model.")
+        }
+        r.updateMatrixWorld(true);
+        const c = [],
+            u = new n.Vector3;
+        r.traverse(e => {
+            if (e.isMesh && e.geometry?.attributes.position) {
+                const t = e.geometry.attributes.position;
+                for (let n = 0; n < t.count; n++) {
+                    u.fromBufferAttribute(t, n).applyMatrix4(e.matrixWorld);
+                    c.push({
+                        x: u.x,
+                        z: u.z
+                    })
+                }
+            }
+        });
+        const h = Chronology.footprints(d.building).find(e => Spatial.inside(s, e[0]) && !e.slice(1).some(e => Spatial.inside(s, e))) || Chronology.footprints(d.building)[0],
+            m = e.rectangle(c),
+            p = e.rectangle(h[0].map(J)),
+            f = e.fit(m, p),
+            g = (new n.Box3).setFromObject(r);
+        Qe();
+        H = {
+            angle: p.angle,
+            width: m.width * f.scale,
+            height: (g.max.y - g.min.y) * f.scale
+        };
+        D = d.building.id;
+        j = f.yaw;
+        F = $(f.center);
+        const y = new n.Group;
+        y.add(r);
+        y.position.set(-m.center.x, -g.min.y, -m.center.z);
+        const b = new n.Group;
+        b.add(y);
+        b.scale.setScalar(f.scale);
+        if (w) r.traverse(e => {
+            if (e.isMesh) {
+                const t = e.material;
+                (Array.isArray(t) ? t : [t]).forEach(e => {
+                    Object.values(e).forEach(e => {
+                        if (e?.isTexture) e.dispose()
+                    });
+                    e.dispose()
+                });
+                e.material = new n.MeshLambertMaterial({
+                    color: "#928775",
+                    side: n.DoubleSide
+                })
+            }
+        });
+        G = new n.Group;
+        G.position.set(f.center.x, 0, f.center.z);
+        G.rotation.y = j;
+        G.add(b);
+        C.add(G);
+        et();
+        Re();
+        Ze();
+        return true
+    }
+    async function nt() {
+        if (ee.free(z.position) < 0) throw new Error("Move outside the building before confirming this view.");
+        if (N) throw new Error("Wait for the camera to finish moving, then confirm the view.");
+        Se();
+        let e = b.domElement,
+            t = null;
+        const n = document.createElement("canvas"),
+            o = Math.min(1, 1200 / i.clientWidth);
+        n.width = Math.round(i.clientWidth * o);
+        n.height = Math.round(i.clientHeight * o);
+        const a = n.getContext("2d");
+        a.fillStyle = "#e1e5d9";
+        a.fillRect(0, 0, n.width, n.height);
+        try {
+            if (w) {
+                const n = new Image;
+                t = URL.createObjectURL(new Blob([(new XMLSerializer).serializeToString(e)], {
+                    type: "image/svg+xml"
+                }));
+                await new Promise((e, o) => {
+                    n.onload = e;
+                    n.onerror = () => o(new Error("Could not capture the geometry view."));
+                    n.src = t
+                });
+                e = n
+            }
+            a.drawImage(e, 0, 0, n.width, n.height);
+            return n.toDataURL("image/jpeg", .85)
+        } finally {
+            if (t) URL.revokeObjectURL(t)
+        }
+    }
+    const ot = new n.Raycaster,
+        at = new n.Vector2,
+        it = new n.Plane(new n.Vector3(0, 1, 0), 0);
+
+    function rt(e, t) {
+        if (_ || O === "photo") return;
+        const o = b.domElement.getBoundingClientRect();
+        at.set((e.clientX - o.left) / o.width * 2 - 1, -(e.clientY - o.top) / o.height * 2 + 1);
+        ot.setFromCamera(at, z);
+        const a = ot.intersectObjects(Z.filter(e => e.visible && e.parent.visible), false);
+        let i;
+        if (a.length) {
+            const e = a[0].object.userData.building;
+            i = e.boxyModel ? $(a[0].point) : e.polygon.reduce((t, n) => [t[0] + n[0] / e.polygon.length, t[1] + n[1] / e.polygon.length], [0, 0])
+        } else {
+            const e = new n.Vector3;
+            if (!ot.ray.intersectPlane(it, e)) return;
+            i = $(e)
+        }
+        if (!a.length && window.RegionalMap?.inspectPoint(i)) return;
+        if (!t) {
+            le = {
+                x: e.clientX - o.left,
+                y: e.clientY - o.top
+            };
+            he();
+            return
+        }
+        if (Spatial.areaForPoint(i, s)) ae("atlas-point", {
+            point: i,
+            flight: t !== "inspect"
+        });
+        else ae("atlas-outside")
+    }
+    let st = null,
+        lt = 0;
+    const dt = new Set;
+
+    function ct() {
+        st = null;
+        lt = 0;
+        dt.clear()
+    }
+    b.domElement.addEventListener("pointermove", e => {
+        if (st && e.pointerId === st.id && Math.hypot(e.clientX - st.x, e.clientY - st.y) > 5) {
+            st.moved = true;
+            lt = 0
+        }
+        const t = i.getBoundingClientRect();
+        le = e.buttons ? null : {
+            x: e.clientX - t.left,
+            y: e.clientY - t.top
+        };
+        he()
+    });
+    b.domElement.addEventListener("pointerleave", () => {
+        ct();
+        le = null;
+        he()
+    });
+    b.domElement.addEventListener("pointerdown", e => {
+        dt.add(e.pointerId);
+        if (dt.size > 1) {
+            st = null;
+            lt = 0;
+            return
+        }
+        if (_e) Pe();
+        if (e.button !== 0 || e.isPrimary === false || _ || O === "photo") {
+            st = null;
+            lt = 0;
+            return
+        }
+        st = {
+            id: e.pointerId,
+            x: e.clientX,
+            y: e.clientY,
+            moved: false
+        }
+    });
+    b.domElement.addEventListener("pointerup", e => {
+        dt.delete(e.pointerId);
+        const t = e.button === 0 && MobileAtlas.isTap(st, e, dt.size);
+        st = null;
+        if (!t || _ || O === "photo") {
+            lt = 0;
+            return
+        }
+        lt = Math.min(2, lt + 1);
+        rt(e, e.pointerType === "touch" || MobileAtlas.compact() ? "inspect" : false)
+    });
+    b.domElement.addEventListener("pointercancel", ct);
+    b.domElement.addEventListener("wheel", ct, {
+        passive: true
+    });
+    b.domElement.addEventListener("dblclick", e => {
+        const t = e.button === 0 && lt === 2 && !_ && O !== "photo";
+        ct();
+        if (!t) return;
+        e.preventDefault();
+        rt(e, true)
+    });
+    try {
+        u = await window.createAtlasBasemap({
+            THREE: n,
+            host: i,
+            camera: z,
+            controls: k,
+            pos: J,
+            geo: $,
+            data: s
+        })
+    } catch (e) {
+        document.getElementById("basemap-status").textContent = "The street basemap could not load."
+    }
+
+    function ut() {
+        const e = MobileAtlas.compact(),
+            t = e && ce,
+            n = AtlasI18n.language() === "zh",
+            o = MobileAtlas.tr;
+        k.enabled = !_ && !N && (!e || t);
+        b.domElement.style.touchAction = e && !t ? "pan-y pinch-zoom" : "none";
+        i.dataset.touchMode = e ? t ? "map" : "page" : "desktop";
+        const a = document.getElementById("mobile-map-tools");
+        a.dataset.exploring = String(t);
+        const r = document.getElementById("mobile-map-toggle");
+        r.textContent = t ? o("Scroll page", "滚动页面") : o("Move map", "操作地图");
+        r.setAttribute("aria-pressed", String(t));
+        document.getElementById("mobile-map-hint").textContent = MobileAtlas.hint(t);
+        document.getElementById("mobile-zoom-in").setAttribute("aria-label", o("Zoom in", "放大"));
+        document.getElementById("mobile-zoom-out").setAttribute("aria-label", o("Zoom out", "缩小"));
+        const s = {
+            forward: ["Move forward", "向前移动"],
+            back: ["Move backward", "向后移动"],
+            left: ["Move left", "向左移动"],
+            right: ["Move right", "向右移动"]
+        };
+        for (const e of a.querySelectorAll("[data-map-step]")) e.setAttribute("aria-label", o(...s[e.dataset.mapStep]))
+    }
+
+    function ht(e) {
+        if (_ || O === "photo") return;
+        if (O === "street" && (e === "in" || e === "out")) {
+            street77.zoom(e === "in" ? 1 : -1);
+            return;
+        }
+        Pe();
+        const t = z.position.clone().sub(k.target),
+            o = t.length();
+        if (e === "in" || e === "out") {
+            t.multiplyScalar(e === "in" ? .78 : 1.28);
+            t.setLength(Math.max(k.minDistance, Math.min(k.maxDistance, t.length())));
+            z.position.copy(k.target).add(t)
+        } else {
+            const t = k.target.clone().sub(z.position);
+            t.y = 0;
+            if (t.lengthSq() < 1e-5) t.set(0, 0, -1);
+            t.normalize();
+            const a = (new n.Vector3).crossVectors(t, new n.Vector3(0, 1, 0));
+            const i = Math.max(2, Math.min(40, o * .08)),
+                r = (e === "left" || e === "right" ? a : t).multiplyScalar(i * (e === "left" || e === "back" ? -1 : 1));
+            z.position.add(r);
+            k.target.add(r)
+        }
+        k.update();
+        Ce();
+        ut()
+    }
+    document.getElementById("mobile-map-toggle").onclick = () => {
+        ce = !ce;
+        Pe();
+        ut()
+    };
+    for (const e of ["in", "out"]) document.getElementById("mobile-zoom-" + e).onclick = () => ht(e);
+    for (const e of document.querySelectorAll("[data-map-step]")) e.onclick = () => ht(e.dataset.mapStep);
+    window.addEventListener("atlas-layout-changed", () => {
+        ce = true;
+        ut();
+        Ie()
+    });
+    window.addEventListener("atlas-language-changed", () => {
+        ut();
+        Ge();
+        visibility78.owners(q, (e, p) => Chronology.contains(e.building, $(p)));
+        visibility78.invalidate();
+        ke();
+    });
+
+    function mt(e) {
+        Pe();
+        O = "context";
+        i.dataset.regionalView = "false";
+        const t = J(e);
+        te = null;
+        Te(new n.Vector3(t.x + 90, 130, t.z + 100), new n.Vector3(t.x, 8, t.z), 0);
+        ut()
+    }
+    ut();
+    const pt = WalkControls.bind({
+        element: b.domElement,
+        camera: z,
+        controls: k,
+        THREE: n,
+        canMove: () => !_ && O !== "photo",
+        beforeMove: Pe,
+        onMove: Ce,
+        isStreet: () => O === "street"
+    });
+    const sourceLabels79 = new WeakMap();
+    de = ArchiveHover.create({
+        host: i,
+        canvas: b.domElement,
+        records: window.CURATED_ARCHIVE.records,
+        data: window.ARCHIVE_HOVER_DATA,
+        view: () => ({
+            year: L,
+            mode: O,
+            locked: _,
+            near: MobileAtlas.tagsNear(z.position.distanceTo(k.target), i.clientHeight, z.fov)
+        }),
+        project: (e, t) => {
+            const o = J(e);
+            let tag = sourceLabels79.get(t);
+            if (!tag) {
+                tag = {
+                    p: new n.Vector3()
+                };
+                sourceLabels79.set(t, tag);
+            }
+            tag.p.set(o.x, t?.building_id ? LandmarkArchitecture.anchorHeight(t.building_id, L) : 18, o.z);
+            const a = tag.p.clone().project(z),
+                inView = a.z >= -1 && a.z <= 1 && Math.abs(a.x) <= 1 && Math.abs(a.y) <= 1;
+            return {
+                x: (a.x + 1) * i.clientWidth / 2,
+                y: (1 - a.y) * i.clientHeight / 2,
+                z: a.z,
+                occluded: inView && !visibility78.visible(tag)
+            }
+        }
+    });
+    Oe();
+    Ie();
+    qe(null, 0);
+    return {
+        inspectAt: mt,
+        timeFlight: Ue,
+        cancelTimeFlight: Pe,
+        landmarkFocus: e => {
+            const t = {
+                    masonic: [-83.06063881780707, 42.34161931412875],
+                    kresge: [-83.06165565063337, 42.34002211966644],
+                    standard: [-83.06181209640312, 42.341205165537644],
+                    union: [-83.05444435874509, 42.32724990956524],
+                    "fort-wayne": [-83.05911078071347, 42.34192503299315],
+                    "fort-church": [-83.053743820479, 42.3275974001151],
+                    "holy-trinity": [-83.06049270757039, 42.329835970217566],
+                    "chungs-restored": [-83.06030120341846, 42.3440345103911],
+                    woodstock: [-83.06112787153477, 42.34359119558246],
+                    mckay: [-83.06088491977302, 42.33025894684694],
+                    workers: [-83.06074759580835, 42.330054835675554],
+                    cass3136: [-83.05927324479406, 42.3438398983477],
+                    cass3124: [-83.05920161132349, 42.343488584145625],
+                    park3127: [-83.05857471796764, 42.34371949050946],
+                    cass3745: [-83.06220986737277, 42.3474411287461],
+                    porter1200: [-83.06075268597826, 42.32958848158515],
+                    bagley1221: [-83.06206893481931, 42.33075240576617],
+                    sixth1423: [-83.06097431439211, 42.32976088124234],
+                    sixth1535: [-83.06177488218721, 42.330718863042115],
+                    cass2949: [-83.05931556636185, 42.34241412911979],
+                    cass2930: [-83.05860289563587, 42.34245060473338]
+                },
+                o = t[e];
+            if (!o) return;
+            const a = LandmarkArchitecture.profiles.find(t => t.entity === e),
+                r = J(o),
+                s = a?.height || 30,
+                l = a?.facing || [.8, .5],
+                d = Math.max(100, s * 2.7);
+            O = "context";
+            i.dataset.regionalView = "false";
+            te = null;
+            Te(new n.Vector3(r.x + l[0] * d + l[1] * d * .38, s * .8, r.z + l[1] * d - l[0] * d * .38), new n.Vector3(r.x, s * .35, r.z), 0)
+        },
+        coreFocus: e => {
+            O = "context";
+            const t = s.areas.find(t => t.id === e),
+                o = J(t.center),
+                a = e === "old" ? {
+                    x: 85,
+                    z: 70
+                } : {
+                    x: 115,
+                    z: 40
+                };
+            Te(new n.Vector3(o.x + a.x, 55, o.z + a.z), new n.Vector3(o.x, 5, o.z), 950)
+        },
+        renderingEnabled: e => {
+            Q.setEnabled(O === "street" && !!e);
+            Se()
+        },
+        labelsVisible: (e, t) => {
+            if (Object.prototype.hasOwnProperty.call(f, e)) {
+                f[e] = !!t;
+                i.dataset[e + "LabelsEnabled"] = String(!!t);
+                he()
+            }
+        },
+        centers: Fe,
+        heat: e => {
+            c = !!e;
+            u?.heat(e);
+            Se()
+        },
+        region: () => {
+            i.dataset.regionalView = "true";
+            O = "context";
+            const e = J([-83.1974, 42.4654]);
+            Te(new n.Vector3(e.x + 9e3, 13e4, e.z + 5e4), new n.Vector3(e.x, 0, e.z), 1e3)
+        },
+        kioskVisible: e => {
+            m = e;
+            R.visible = e;
+            visibility78.invalidate();
+            Se()
+        },
+        railVisible: e => {
+            p = e;
+            A.visible = e;
+            visibility78.invalidate();
+            Se()
+        },
+        basemapVisible: e => u?.visible(e),
+        historicalVisible: e => u?.historical(e),
+        roadsVisible: e => {
+            h = e;
+            E.visible = e;
+            visibility78.invalidate();
+            Ce()
+        },
+        select: Je,
+        load: tt,
+        capture: nt,
+        visibleBuildings103: () => {
+            Se();const ray=new n.Raycaster(),point=new n.Vector2(),seen=new Set();
+            const meshes=Z.filter(mesh=>{for(let p=mesh;p;p=p.parent)if(!p.visible)return false;return true;});
+            for(let iy=0;iy<14;iy++)for(let ix=0;ix<30;ix++){
+                point.set((ix+.5)/30*2-1,1-(iy+.5)/14*2);ray.setFromCamera(point,z);
+                const hit=ray.intersectObjects(meshes,false)[0];if(hit?.object.userData.building?.id)seen.add(hit.object.userData.building.id);
+            }
+            return [...seen].slice(0,80);
+        },
+        streetFrame102: () => {
+            if(O!=="street"||N)throw new Error("Choose a street viewpoint and wait for the camera to stop moving.");
+            return {position:z.position.toArray(),target:k.target.toArray(),fov:z.fov,aspect:z.aspect};
+        },
+        restoreStreet102: frame => {Pe();O="street";street77.sync(O);z.position.fromArray(frame.position);k.target.fromArray(frame.target);street77.restoreLens(frame);k.update();Se();},
+        photo102: value => {Pe();O=value?"photo":"street";street77.sync(O);Se();},
+        reconstructionMarkers102: (rows,enabled) => {
+            reconstructionRows102=rows;reconstructionEnabled102=!!enabled;reconstructionLayer102.replaceChildren();
+            reconstructionRows102.forEach(row=>{const el=document.createElement("button");el.type="button";el.className="street-marker102";el.textContent="▧ "+row.sceneYear;el.title="Reconstructed photo · "+row.description;el.setAttribute("aria-label","Reconstructed photo · "+row.sceneYear+" · "+row.description);el.onclick=e=>{e.stopPropagation();if(!_&&document.getElementById("show-reconstructed102")?.checked)window.dispatchEvent(new CustomEvent("street-photo-marker102",{detail:row}));};row.element=el;reconstructionLayer102.append(el);});Se();
+        },
+        mode: Ke,
+        overview: qe,
+        markers: We,
+        setYear: $e,
+        clearModel: Qe,
+        focus: () => O === "context" ? qe(V?.district) : O === "street" ? Xe() : Ze(),
+        heading: e => {
+            if (G) {
+                G.rotation.y = j + e * Math.PI / 180;
+                Re();
+                Ce()
+            }
+        },
+        lock: e => {
+            _ = e;
+            if (e) pt.stop();
+            k.enabled = !e && !N && (!MobileAtlas.compact() || ce)
+        },
+        isVector: w,
+        temporal: () => Chronology.summary(s, l, L, V?.district)
+    }
+})().catch(e => {
+    document.getElementById("view-mode").textContent = "The 3D map could not load. Check the connection and reload; the archive remains available.";
+    document.getElementById("scene").textContent = "The historical 3D map could not load in this browser.";
+    throw e
+});

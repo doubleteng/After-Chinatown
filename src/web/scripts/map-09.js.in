@@ -1,0 +1,101 @@
+/* NOAA / Meeus solar geometry; coordinates use east +X, up +Y, south +Z.
+   Reference: https://gml.noaa.gov/grad/solcalc/main.js and calcdetails.html.
+   This is an adjustable reference illumination, not historical weather evidence. */
+const Solar80=(()=>{
+ const rad=Math.PI/180,deg=180/Math.PI,clamp=(x,a,b)=>Math.max(a,Math.min(b,x)),wrap=(x,n=360)=>(x%n+n)%n;
+ function position(date,latitude,longitude){
+  const jd=date.getTime()/86400000+2440587.5,t=(jd-2451545)/36525;
+  const mean=wrap(280.46646+t*(36000.76983+.0003032*t))*rad,m=(357.52911+t*(35999.05029-.0001537*t))*rad;
+  const ecc=.016708634-t*(.000042037+.0000001267*t);
+  const center=Math.sin(m)*(1.914602-t*(.004817+.000014*t))+Math.sin(2*m)*(.019993-.000101*t)+Math.sin(3*m)*.000289;
+  const omega=(125.04-1934.136*t)*rad;
+  const lambda=mean+(center-.00569-.00478*Math.sin(omega))*rad;
+  const seconds=21.448-t*(46.815+t*(.00059-t*.001813));
+  const obliquity=(23+(26+seconds/60)/60+.00256*Math.cos(omega))*rad;
+  const declination=Math.asin(Math.sin(obliquity)*Math.sin(lambda));
+  const y=Math.tan(obliquity/2)**2;
+  const equation=4*deg*(y*Math.sin(2*mean)-2*ecc*Math.sin(m)+4*ecc*y*Math.sin(m)*Math.cos(2*mean)-.5*y*y*Math.sin(4*mean)-1.25*ecc*ecc*Math.sin(2*m));
+  const minutes=date.getUTCHours()*60+date.getUTCMinutes()+date.getUTCSeconds()/60;
+  const hour=(wrap(minutes+equation+4*longitude,1440)/4-180)*rad,lat=latitude*rad;
+  const geometric=Math.asin(clamp(Math.sin(lat)*Math.sin(declination)+Math.cos(lat)*Math.cos(declination)*Math.cos(hour),-1,1))*deg;
+  const tan=Math.tan(geometric*rad);
+  const refraction=geometric>85?0:geometric>5?(58.1/tan-.07/tan**3+.000086/tan**5)/3600:geometric>-.575?(1735+geometric*(-518.2+geometric*(103.4+geometric*(-12.79+geometric*.711))))/3600:-20.774/tan/3600;
+  const azimuth=wrap(Math.atan2(Math.sin(hour),Math.cos(hour)*Math.sin(lat)-Math.tan(declination)*Math.cos(lat))*deg+180),elevation=geometric+refraction,az=azimuth*rad,el=elevation*rad;
+  return {azimuth,elevation,geometric,x:Math.sin(az)*Math.cos(el),y:Math.sin(el),z:-Math.cos(az)*Math.cos(el)};
+ }
+ const formatter=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Detroit',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+ function parts(date){return Object.fromEntries(formatter.formatToParts(date).filter(p=>p.type!=='literal').map(p=>[p.type,Number(p.value)]));}
+ function localDate(year,month,day,hour,minute){
+  day=clamp(day,1,new Date(Date.UTC(year,month,0)).getUTCDate());
+  const desired=Date.UTC(year,month-1,day,hour,minute);let stamp=desired;
+  for(let i=0;i<3;i++){const p=parts(new Date(stamp)),offset=Date.UTC(p.year,p.month-1,p.day,p.hour,p.minute,p.second)-stamp,next=desired-offset;if(next===stamp)break;stamp=next;}
+  return new Date(stamp);
+ }
+ function bearing(direction){return wrap(Math.atan2(direction.x,-direction.z)*deg);}
+ function northTop(eye,target){const height=Math.max(80,Math.min(15000,Math.hypot(eye.x-target.x,eye.y-target.y,eye.z-target.z)));return {x:target.x,y:target.y+height,z:target.z+height*1e-6};}
+ return {position,localDate,parts,bearing,northTop};
+})();
+const AtlasNavigation80=(()=>{
+ const el=id=>document.getElementById(id),tr=(en,zh)=>window.AtlasI18n?.language()==='zh'?zh:en;
+ let preference=true,allowed=false,change=()=>{},lastSolarKey='',solar=null;
+ const month=6,day=21,time='14:00';
+ function gate(mode){allowed=mode==='street';const input=el('show-rendering');input.disabled=!allowed;input.checked=allowed&&preference;input.closest('label').title=allowed?tr('Sunlight and sky','日照与天空'):tr('Rendering is available in Street view only','仅街景模式可开启渲染');el('solar-toggle80').disabled=!allowed;if(!allowed)el('solar-options80').hidden=true;return allowed&&preference;}
+ function init(){
+  const input=el('show-rendering');try{preference=MobileAtlas.defaultEffects(localStorage.getItem('chinatown-rendering'),MobileAtlas.compact());}catch(_){preference=!MobileAtlas.compact();}
+  input.addEventListener('change',()=>{if(!allowed){input.checked=false;return;}preference=input.checked;try{localStorage.setItem('chinatown-rendering',preference?'on':'off');}catch(_){}change();});
+  el('solar-month80').value=month;el('solar-day80').value=day;el('solar-time80').value=time;
+  for(const id of ['solar-month80','solar-day80','solar-time80'])el(id).addEventListener('change',()=>{lastSolarKey='';change();});
+  el('key-toggle80').onclick=()=>{if(MobileAtlas.compact()){MobileAtlas.open('layers',el('key-toggle80'));return;}const d=el('map-options');d.open=!d.open;el('key-toggle80').setAttribute('aria-expanded',String(d.open));};
+  el('solar-toggle80').onclick=()=>{const d=el('solar-options80');d.hidden=!d.hidden;el('solar-toggle80').setAttribute('aria-expanded',String(!d.hidden));change();};
+  function labels(){for(const e of document.querySelectorAll('[data-nav80-en]'))e.textContent=tr(e.dataset.nav80En,e.dataset.nav80Zh);el('solar-month80').setAttribute('aria-label',tr('Solar month','日照月份'));el('solar-day80').setAttribute('aria-label',tr('Solar day','日照日期'));el('solar-time80').setAttribute('aria-label',tr('Detroit local time','底特律当地时间'));lastSolarKey='';change();}
+  window.addEventListener('atlas-language-changed',labels);labels();gate('context');
+ }
+ function sun(year,point,host){
+  // Recompute after crossing a ~100 m geographic cell, not for every pointer event.
+  const lon=Math.round(point[0]*1000)/1000,lat=Math.round(point[1]*1000)/1000;
+  const key=[year,lon,lat,el('solar-month80').value,el('solar-day80').value,el('solar-time80').value,window.AtlasI18n?.language()].join('|');
+  if(key===lastSolarKey&&solar)return solar;
+  const m=Math.max(1,Math.min(12,Number(el('solar-month80').value)||6)),d=Math.max(1,Math.min(31,Number(el('solar-day80').value)||21));
+  const [hh,mm]=(el('solar-time80').value||'14:00').split(':').map(Number),date=Solar80.localDate(year,m,d,hh,mm),p=Solar80.parts(date);
+  el('solar-month80').value=p.month;el('solar-day80').value=p.day;el('solar-day80').max=new Date(Date.UTC(year,p.month,0)).getUTCDate();el('solar-time80').value=String(p.hour).padStart(2,'0')+':'+String(p.minute).padStart(2,'0');
+  solar={...Solar80.position(date,lat,lon),date,key};lastSolarKey=key;
+  const stamp=p.year+'-'+String(p.month).padStart(2,'0')+'-'+String(p.day).padStart(2,'0')+' '+el('solar-time80').value;
+  el('solar-state80').textContent=stamp+' · America/Detroit · '+tr('azimuth ','方位 ')+solar.azimuth.toFixed(1)+'° · '+tr('elevation ','高度 ')+solar.elevation.toFixed(1)+'°'+(solar.elevation<=0?tr(' · below horizon',' · 太阳在地平线下'):'');
+  host.dataset.sunAzimuth=solar.azimuth.toFixed(4);host.dataset.sunElevation=solar.elevation.toFixed(4);host.dataset.sunUtc=date.toISOString();host.dataset.sunLocation=lat.toFixed(3)+','+lon.toFixed(3);host.dataset.sunReference=stamp+' America/Detroit';return solar;
+ }
+ function compass({THREE,camera,host,mode,reset}){
+  const button=el('atlas-compass80'),arrow=el('compass-arrow80'),readout=el('compass-bearing80'),direction=new THREE.Vector3();let last='';
+  button.addEventListener('dblclick',event=>{event.preventDefault();event.stopPropagation();if(mode()==='context')reset();});
+  button.addEventListener('click',event=>event.stopPropagation());button.addEventListener('pointerdown',event=>event.stopPropagation());
+  button.addEventListener('keydown',event=>{if((event.key==='Enter'||event.key===' ')&&mode()==='context'){event.preventDefault();reset();}});
+  function update(){
+   const m=mode(),street=m==='street';button.hidden=!['context','street'].includes(m)||host.dataset.regionalView==='true';if(button.hidden)return;
+   button.dataset.mode=m;camera.getWorldDirection(direction);
+   // At a vertical view use the screen-up vector to resolve compass orientation.
+   if(Math.hypot(direction.x,direction.z)<1e-4)direction.set(0,1,0).applyQuaternion(camera.quaternion);
+   const bearing=Solar80.bearing(direction),rounded=Math.round(bearing)%360,text=String(rounded).padStart(3,'0')+'°';
+   const key=[m,text,window.AtlasI18n?.language()].join('|');if(key===last)return;last=key;
+   arrow.style.transform='rotate('+(-bearing).toFixed(2)+'deg)';readout.textContent=street?text:'';readout.hidden=!street;
+   button.title=street?tr('Camera bearing: ','镜头朝向：')+text:tr('Double-click: north-up top view','双击：恢复上北下南的顶视图');button.setAttribute('aria-label',button.title);host.dataset.compassBearing=bearing.toFixed(3);
+  }
+  return {update};
+ }
+ function sky({THREE,scene,camera,host,vector}){
+  let mesh=null;const dir=new THREE.Vector3(),sunDir=new THREE.Vector3();
+  function update(active,sun){
+   host.dataset.skyMode=active?(vector?'gradient-fallback':'procedural-3d'):'off';
+   if(!active){if(mesh)mesh.visible=false;host.style.background='';return;}
+   const day=Math.max(0,Math.min(1,(sun.elevation+6)/18));sunDir.set(sun.x,sun.y,sun.z);
+   if(vector){camera.getWorldDirection(dir);const horizon=50+Math.asin(Math.max(-1,Math.min(1,dir.y)))*180/Math.PI/camera.fov*100;host.style.background=day>.3?'linear-gradient(#3e83c0 0%, #a7d6ed '+Math.max(8,Math.min(95,horizon))+'%, #e1e5d9 100%)':'linear-gradient(#102033,#34495b)';return;}
+   if(!mesh){
+    const material=new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,depthTest:false,fog:false,toneMapped:false,uniforms:{sun:{value:new THREE.Vector3()},daylight:{value:1}},vertexShader:'varying vec3 ray; void main(){ray=position; vec4 p=projectionMatrix*modelViewMatrix*vec4(position,1.0); gl_Position=p.xyww;}',fragmentShader:'precision mediump float; varying vec3 ray; uniform vec3 sun; uniform float daylight; void main(){vec3 d=normalize(ray); float h=clamp(d.y,0.,1.); vec3 c=mix(vec3(.66,.83,.91),vec3(.12,.36,.66),pow(h,.4)); c=mix(vec3(.04,.065,.11),c,daylight); c=mix(c,vec3(.69,.72,.66)*max(.15,daylight),(1.-smoothstep(-.055,.01,d.y))); float s=max(0.,dot(d,sun)); c+=vec3(1.,.82,.48)*(pow(s,300.)*.18+smoothstep(.99993,.99997,s)*.85)*step(0.,sun.y); gl_FragColor=vec4(c,1.); }'});
+    mesh=new THREE.Mesh(new THREE.SphereGeometry(1,16,8),material);mesh.name='street-sky80';mesh.frustumCulled=false;mesh.renderOrder=-1000;scene.add(mesh);
+   }
+   mesh.visible=true;mesh.position.copy(camera.position);mesh.material.uniforms.sun.value.copy(sunDir);mesh.material.uniforms.daylight.value=day;
+  }
+  return {update};
+ }
+ return {init,gate,sun,compass,sky,enabled:()=>preference,onChange:fn=>{change=fn;}};
+})();
+
+AtlasNavigation80.init();

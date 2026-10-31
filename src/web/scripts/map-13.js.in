@@ -1,0 +1,2 @@
+/* Reference dates stay explicit in both interface languages. */
+(()=>{const refresh=()=>{const zh=window.AtlasI18n?.language()==='zh';document.getElementById('coastal-note78').textContent=zh?'国境线：IBC v1.3。河岸线：美国测绘 2008/2020；加拿大记录更新 2021（5 米以内）。均为当代制图参考，不代表所选历史年份的河岸。':'Boundary: IBC v1.3. Shorelines: U.S. surveys 2008/2020; Canadian records updated 2021 (within 5 m). Modern mapping references, not reconstructed shorelines for the selected historical year.';};window.addEventListener('atlas-language-changed',refresh);refresh();})();

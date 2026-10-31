@@ -1,0 +1,180 @@
+{
+  "version": "example-1",
+  "default_radius": 500,
+  "radii": [
+    100,
+    250,
+    500,
+    1000
+  ],
+  "areas": [
+    {
+      "id": "old",
+      "name": "Original Chinatown",
+      "subtitle": "Third Avenue / Porter / Abbott",
+      "center": [
+        -83.05739114739495,
+        42.33057298525421
+      ],
+      "color": "#a65f41",
+      "polygon": [
+        [
+          -83.05757764582762,
+          42.3329598094528
+        ],
+        [
+          -83.05472781078332,
+          42.32912734375779
+        ],
+        [
+          -83.05780793213727,
+          42.327792397994706
+        ],
+        [
+          -83.06065776718157,
+          42.3316249450254
+        ]
+      ],
+      "note": "Approximate research outline around the Third Avenue corridor. A 1964 folklore record names Third between West Fort and Bagley; it does not define lateral boundaries. This outline is an interpretive selection area, not a cadastral boundary.",
+      "sources": [
+        "https://libraries.udmercy.edu/archives/special-collections/cfa/index.php?fl_id=42183",
+        "https://detroitography.com/2022/04/29/map-detroits-original-chinatown/"
+      ],
+      "map_url": "https://www.loc.gov/resource/g4114dm.g03985192101/?sp=20",
+      "map_title": "1921 Sanborn · Volume 1 · Sheet 15",
+      "baseline_note": "1921 simplified footprints registered to three street-intersection controls. Historical and present-day streets can differ. Control-point fit is not a survey accuracy claim; building heights remain illustrative."
+    },
+    {
+      "id": "new",
+      "name": "Relocated Chinatown",
+      "subtitle": "Cass Avenue / Peterboro / Second",
+      "center": [
+        -83.0602459934118,
+        42.34400498789825
+      ],
+      "color": "#315f60",
+      "polygon": [
+        [
+          -83.06319019663721,
+          42.34493502536788
+        ],
+        [
+          -83.060388729484,
+          42.34581310009879
+        ],
+        [
+          -83.05869260682982,
+          42.34285538026162
+        ],
+        [
+          -83.061494073983,
+          42.34197726422069
+        ]
+      ],
+      "note": "Approximate research outline enclosing the documented Cass / Peterboro community places. The City StoryMap supplies approximate place markers; the outline is interpretive and is not a legal or exhaustive community boundary.",
+      "sources": [
+        "https://storymaps.arcgis.com/stories/66fbeec68dba4b5f98f0ff2560586a4d",
+        "https://libraries.udmercy.edu/archives/special-collections/cfa/index.php?fl_id=42183"
+      ],
+      "map_url": "https://www.loc.gov/resource/g4114dm.g03985192102/?sp=73",
+      "map_title": "1921 Sanborn · Volume 2 · Sheet 70",
+      "baseline_note": "1921 simplified footprints registered to three street-intersection controls. Historical and present-day streets can differ. Control-point fit is not a survey accuracy claim; building heights remain illustrative."
+    }
+  ],
+  "anchors": {
+    "example-anchor": {
+      "point": [
+        -83.059,
+        42.3372
+      ],
+      "basis": "Synthetic teaching coordinate",
+      "uncertainty_m": 100,
+      "source_url": "https://example.org/source-001",
+      "district": "new",
+      "aliases": [
+        "illustrative cass corridor location"
+      ]
+    }
+  },
+  "record_anchors": {
+    "example-source-001": "example-anchor"
+  },
+  "buildings": [
+    {
+      "id": "example-envelope",
+      "polygon": [
+        [
+          -83.0592,
+          42.3371
+        ],
+        [
+          -83.0589,
+          42.3371
+        ],
+        [
+          -83.0589,
+          42.3373
+        ],
+        [
+          -83.0592,
+          42.3373
+        ]
+      ],
+      "center": [
+        -83.059,
+        42.3372
+      ],
+      "height": 9,
+      "height_basis": "Illustrative value, not surveyed",
+      "source_year": 1921,
+      "source_url": "https://example.org/source-001",
+      "geometry_basis": "Synthetic teaching footprint; not a historical reconstruction",
+      "district": "new",
+      "survey_id": "example-survey"
+    }
+  ],
+  "streets": [],
+  "method": "Map outlines, markers, tracing and dimensions are research approximations. Photo markers describe supported subject or camera locations as labeled. A source date is not proof of conditions in the requested year.",
+  "registration": {},
+  "surveys": [
+    {
+      "id": "example-survey",
+      "year": 1921,
+      "district": "new",
+      "source_url": "https://example.org/source-001",
+      "sourceIds": [
+        "example-source-001"
+      ],
+      "buildingIds": [
+        "example-envelope"
+      ]
+    }
+  ],
+  "study_radius_m": 3218.688,
+  "roads": [],
+  "roadSurveys": [],
+  "roadMethod": {},
+  "roadChanges": [],
+  "landmarks": [],
+  "roadEvents": [],
+  "roadROW": [],
+  "roadRecordMethod": {},
+  "roadPhysicalReviews": [],
+  "roadPhysicalReviewMethod": "Each road segment has separate observation, opening, legal action and removal fields. Null means unknown. Year-end timeline convention; the earliest dated map is not an opening date. New freeway evidence is linked in the inspector only; unregistered aerials do not supply invented ramp geometry.",
+  "mapRegistrationReviews": [],
+  "geometryReviewVersion": "2026-09-09.21.1",
+  "geography": {},
+  "transport": [],
+  "railStations": [],
+  "freewayHistory": [],
+  "roadConnections": [],
+  "transportMethod": "Station service dates, construction dates, and physical removal dates are distinct. Source-traced 1950 rail-fan geometry, agency reference corridors and illustrative rail elevations are individually identified. Current water/border geometry is a navigation reference, not historical shoreline reconstruction.",
+  "roadConnectionMethod": "Named network continuations and tangent extensions fill modeled gaps without establishing verified historical junctions. Reference centerlines and corridor dates are retained separately. Grade-separated I-94 crossing is schematic in height; remaining road grades and ramps are unresolved.",
+  "storyPlaces": [],
+  "interchangeRamps": [],
+  "interchanges": [],
+  "addressReview": {
+    "records": {},
+    "sources": {}
+  }
+}

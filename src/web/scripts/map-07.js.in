@@ -1,0 +1,18 @@
+/* Resizes the existing viewport without replacing its scene or controls. */
+(()=>{
+ const panel=document.querySelector('section.window'),toolbar=panel?.querySelector('.atlas-toolbar');if(!toolbar)return;
+ const actions=document.createElement('div');actions.className='map-window-actions';actions.dataset.noTranslate='';
+ const maximize=document.createElement('button'),fullscreen=document.createElement('button'),status=document.createElement('span');
+ maximize.id='map-maximize';fullscreen.id='map-fullscreen';status.id='map-window-status';status.setAttribute('role','status');status.className='sr-only';
+ for(const b of [maximize,fullscreen]){b.type='button';b.className='button quiet';actions.append(b);}actions.append(status);toolbar.append(actions);
+ let expanded=false,previousExpanded=false,previousOverflow='',scrollY=0;
+ const tr=(en,zh)=>window.AtlasI18n?.language()==='zh'?zh:en;
+ function labels(){maximize.textContent=expanded?tr('Restore window','还原窗口'):tr('Maximize map','地图最大化');maximize.setAttribute('aria-pressed',String(expanded));fullscreen.textContent=document.fullscreenElement===panel?tr('Exit full screen','退出全屏'):tr('Full screen','全屏');fullscreen.setAttribute('aria-pressed',String(document.fullscreenElement===panel));}
+ function setExpanded(value){if(expanded===value){labels();return;}if(value){previousOverflow=document.body.style.overflow;scrollY=window.scrollY;document.body.style.overflow='hidden';}else{document.body.style.overflow=previousOverflow;}expanded=value;panel.classList.toggle('atlas-expanded',value);labels();window.dispatchEvent(new Event('resize'));if(!value)window.scrollTo(0,scrollY);}
+ maximize.onclick=async()=>{status.textContent='';if(document.fullscreenElement===panel){previousExpanded=false;await document.exitFullscreen();}else setExpanded(!expanded);};
+ fullscreen.onclick=async()=>{status.textContent='';if(document.fullscreenElement===panel){await document.exitFullscreen();return;}previousExpanded=expanded;try{if(!panel.requestFullscreen)throw new Error('unsupported');await panel.requestFullscreen();}catch(_){setExpanded(true);status.className='map-window-message';status.textContent=tr('Browser full screen is unavailable here; the map is maximized.','当前浏览器无法进入全屏，地图已最大化。');}};
+ document.addEventListener('fullscreenchange',()=>{setExpanded(document.fullscreenElement===panel?true:previousExpanded);labels();});
+ window.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.fullscreenElement&&expanded){setExpanded(false);status.textContent='';maximize.focus();}});
+ window.addEventListener('atlas-show-reading',async()=>{previousExpanded=false;if(document.fullscreenElement===panel)await document.exitFullscreen();setExpanded(false);});
+ window.addEventListener('atlas-language-changed',labels);labels();
+})();

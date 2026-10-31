@@ -1,0 +1,35 @@
+{
+  "version": "example-1",
+  "radius_m": 500,
+  "centers": [
+    [
+      -83.05739114739495,
+      42.33057298525421
+    ],
+    [
+      -83.0602459934118,
+      42.34400498789825
+    ]
+  ],
+  "records": {
+    "example-source-001": {
+      "title_zh": "教学示例：建筑测绘",
+      "location": {
+        "point": [
+          -83.059,
+          42.3372
+        ],
+        "basis": "Synthetic teaching coordinate",
+        "uncertainty_m": 100,
+        "source_url": "https://example.org/source-001",
+        "district": "new"
+      },
+      "start": "1921-01-01",
+      "end": "1921-12-31",
+      "date_basis": "Invented example survey year",
+      "kind": "document",
+      "category": "archive",
+      "summary_zh": "虚构教学数据，不是历史证据。"
+    }
+  }
+}

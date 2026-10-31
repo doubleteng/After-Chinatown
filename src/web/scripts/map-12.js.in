@@ -1,0 +1,15 @@
+/* Disclosure controls do not touch the renderer or its animation loop. */
+(()=>{
+  const $=id=>document.getElementById(id);
+  document.addEventListener('click',event=>{
+    const link=event.target.closest?.('a[href="#project-context"],a[href="#method"]');
+    if(!link)return;
+    const target=$(link.getAttribute('href').slice(1));
+    if(target?.tagName==='DETAILS')target.open=true;
+  });
+  const panels=['map-options','source-filter-panel','reading','question-panel'];
+  document.addEventListener('toggle',event=>{
+    if((typeof MobileAtlas!=='undefined'&&MobileAtlas.compact())||!panels.includes(event.target.id)||!event.target.open)return;
+    for(const id of panels){const panel=$(id);if(panel&&panel!==event.target)panel.open=false;}
+  },true);
+})();

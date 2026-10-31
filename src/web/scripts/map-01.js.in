@@ -1,0 +1,89 @@
+/* The map owns the mobile viewport. Existing controls live in one modal sheet. */
+const MobileAtlas=(()=>{
+ const query=typeof matchMedia==='function'?matchMedia('(max-width:760px), (pointer:coarse)'):null;
+ const compact=()=>!!query?.matches;
+ const tr=(en,zh)=>window.AtlasI18n?.language()==='zh'?zh:en;
+ const $=id=>document.getElementById(id);
+ document.documentElement.dataset.compactAtlas=String(compact());
+ function tagScale(distance,height,fov=45){return height/(2*Math.tan(fov*Math.PI/360)*Math.max(1,distance));}
+ function tagsNear(distance,height,fov=45){return distance<1600&&tagScale(distance,height,fov)>=.65;}
+ function pixelRatio(dpr,small){return Math.min(Math.max(1,dpr||1),small?1:1.5);}
+ function isTap(start,event,remaining){return !!start&&start.id===event.pointerId&&!start.moved&&remaining===0&&Math.hypot(event.clientX-start.x,event.clientY-start.y)<=8;}
+ function defaultEffects(saved,small){return saved==='on'||(saved!=='off'&&!small);}
+ // ResizeObserver can fire without a dimension change. Never clear the drawing
+ // buffer in that case, and allocate once when both size and pixel ratio change.
+ function createResizer({measure,apply,request=requestAnimationFrame}){
+  let last='',pending=false;
+  function flush(){pending=false;const [width,height,ratio]=measure(),w=Math.round(width),h=Math.round(height);if(w<2||h<2)return false;const key=[w,h,ratio].join('/');if(key===last)return false;last=key;apply(w,h,ratio);return true;}
+  return {flush,schedule(){if(!pending){pending=true;request(flush);}}};
+ }
+ const names={search:['Find a place','查找地点'],year:['Choose a year','选择年份'],layers:['Layers & sources','图层与史料'],details:['Place details','地点详情'],info:['About & map tools','关于与地图工具']};
+ let shell=null,sheet=null,active=null,opener=null,placements=[],mounted=false,installed=false;
+ function text(el,value){if(el&&el.textContent!==String(value))el.textContent=value;}
+ function move(node,target){if(!node||placements.some(r=>r.node===node))return;const marker=document.createComment('mobile control home');node.before(marker);placements.push({node,marker});target.append(node);}
+ function button(id,en,zh,action,parent){const b=document.createElement('button');b.id=id;b.type='button';b.dataset.en=en;b.dataset.zh=zh;b.textContent=tr(en,zh);b.onclick=action;parent.append(b);return b;}
+ function labels(){
+  shell?.querySelectorAll('[data-en]').forEach(e=>text(e,tr(e.dataset.en,e.dataset.zh)));
+  for(const id of ['mobile-open-search','mobile-open-year','mobile-open-layers'])if($(id))$(id).disabled=!installed;
+  text($('mobile-sheet-close'),tr('Close','关闭'));
+  text($('mobile-sheet-title'),active?tr(...names[active]):'');
+  for(const [id,en,zh] of [['year-back','Previous year','上一年'],['year-forward','Next year','下一年']])$(id)?.setAttribute('aria-label',tr(en,zh));
+  text($('mobile-place-details'),tr('Place details ↗','地点详情 ↗'));
+  text($('map-options-title'),tr('Map layers & key','图层与图例'));
+  text($('building-tag-rule'),tr('Building names appear when zoomed in.','放大至近景后显示建筑与商铺名称。'));
+  text($('mobile-year-label'),tr('Year','年份'));
+  text($('mobile-gesture-help'),hint());syncYear();
+ }
+ function syncYear(){const y=$('year')?.value||'1921';text($('mobile-open-year'),y);$('mobile-open-year')?.setAttribute('aria-label',tr('Year: ','年份：')+y);const detail=$('mobile-place-details');if(detail)detail.hidden=detail.disabled;}
+ function close(){if(!sheet?.open)return;sheet.close();}
+ function open(kind,trigger){if(!compact()||!sheet||!names[kind])return;active=kind;opener=trigger||document.activeElement;
+  for(const section of sheet.querySelectorAll('[data-sheet-section]'))section.hidden=section.dataset.sheetSection!==kind;
+  sheet.dataset.panel=kind;if(kind==='details')$('reading').open=true;labels();if(!sheet.open)sheet.showModal();$('mobile-sheet-body').scrollTop=0;
+  $('mobile-sheet-close').focus({preventScroll:true});
+ }
+ function ensureShell(){if(shell)return;
+  shell=document.createElement('div');shell.id='mobile-atlas-shell';shell.dataset.noTranslate='';
+  const brand=button('mobile-open-info','After Chinatown','After Chinatown',e=>open('info',e.currentTarget),shell);brand.setAttribute('aria-label',tr('About & map tools','关于与地图工具'));
+  const zoom=document.createElement('div');zoom.id='mobile-map-zoom';zoom.setAttribute('role','group');zoom.setAttribute('aria-label','Map zoom');shell.append(zoom);
+  const dock=document.createElement('nav');dock.id='mobile-map-dock';dock.setAttribute('aria-label','Map tools');shell.append(dock);
+  button('mobile-open-search','Search','搜索',e=>open('search',e.currentTarget),dock);
+  button('mobile-open-year','1921','1921',e=>open('year',e.currentTarget),dock);
+  button('mobile-open-layers','Layers','图层',e=>open('layers',e.currentTarget),dock);
+  sheet=document.createElement('dialog');sheet.id='mobile-map-sheet';sheet.setAttribute('aria-labelledby','mobile-sheet-title');
+  sheet.innerHTML='<div class="mobile-sheet-head"><h2 id="mobile-sheet-title"></h2><button id="mobile-sheet-close" type="button" autofocus>Close</button></div><div id="mobile-sheet-body"></div>';
+  for(const kind of Object.keys(names)){const section=document.createElement('div');section.id='mobile-panel-'+kind;section.dataset.sheetSection=kind;section.hidden=true;sheet.querySelector('#mobile-sheet-body').append(section);}
+  const help=document.createElement('p');help.id='mobile-gesture-help';help.dataset.noTranslate='';sheet.querySelector('#mobile-panel-info').append(help);
+  document.body.append(shell,sheet);
+  $('atlas-travel-form').addEventListener('submit',e=>{if(!installed)e.preventDefault();},{capture:true});
+  $('mobile-sheet-close').onclick=close;
+  sheet.addEventListener('click',e=>{if(e.target!==sheet)return;const r=sheet.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close();});
+  sheet.addEventListener('close',()=>{active=null;if(compact()&&opener?.isConnected)opener.focus({preventScroll:true});});
+  shell.querySelectorAll('button').forEach(b=>b.setAttribute('aria-controls','mobile-map-sheet'));
+ }
+ function attachFilters(panel){if(panel&&compact()&&mounted){move(panel,$('mobile-panel-layers'));panel.open=true;}}
+ function layout(){
+  const small=compact();document.documentElement.dataset.compactAtlas=String(small);
+  if(small&&!mounted){ensureShell();mounted=true;
+   move($('atlas-travel-form'),$('mobile-panel-search'));
+   move($('map-options'),$('mobile-panel-layers'));$('map-options').open=true;
+   move(document.querySelector('.timeline'),$('mobile-panel-year'));
+   move($('regional-panel'),$('mobile-panel-layers'));attachFilters($('source-filter-panel'));
+   for(const node of [$('reading'),$('question-panel'),$('provenance-section')])move(node,$('mobile-panel-details'));
+   for(const node of [document.querySelector('.journey'),document.querySelector('.scene-actions'),document.querySelector('.top-links'),document.querySelector('.intro'),$('project-context'),$('method'),document.querySelector('.archive-links'),document.querySelector('.credits')])move(node,$('mobile-panel-info'));
+   for(const id of ['mobile-zoom-in','mobile-zoom-out'])move($(id),$('mobile-map-zoom'));
+   move($('mobile-place-details'),shell);labels();
+  }else if(!small&&mounted){close();for(const {node,marker} of placements.reverse()){marker.replaceWith(node);}placements=[];mounted=false;for(const id of ['map-options','source-filter-panel'])if($(id))$(id).open=false;}
+ }
+ function hint(){if(document.getElementById('scene')?.dataset.cameraMode==='street')return StreetCamera77.hint(true,true,window.AtlasI18n?.language()==='zh');return tr('Drag to rotate · pinch to zoom · two fingers to pan. Tap a building, then open Place details. Names appear at close zoom.','单指拖动旋转，双指缩放或平移。点选建筑后打开“地点详情”；建筑名称在近景显示。');}
+ function install({changeYear}){if(installed)return;installed=true;layout();
+  for(const [id,delta] of [['year-back',-1],['year-forward',1]])$(id).onclick=()=>changeYear(Math.max(1900,Math.min(2026,Number($('year').value)+delta)));
+  $('mobile-place-details').onclick=()=>{if(compact())open('details',$('mobile-place-details'));};
+  document.querySelector('.journey').addEventListener('click',e=>{if(e.target.closest('button')&&!e.target.disabled)close();});
+  document.querySelector('.scene-actions').addEventListener('click',e=>{if(e.target.closest('button')&&!e.target.disabled)close();});
+  document.querySelector('a[href="#project-context"]').onclick=e=>{if(compact()){e.preventDefault();open('info',e.currentTarget);$('project-context').scrollIntoView({block:'start'});}};
+  window.addEventListener('atlas-language-changed',labels);
+  window.addEventListener('atlas-point',()=>{$('mobile-place-details').disabled=false;syncYear();});
+  query?.addEventListener('change',()=>{layout();window.dispatchEvent(new CustomEvent('atlas-layout-changed'));});labels();
+ }
+ return {compact,tr,tagScale,tagsNear,pixelRatio,isTap,defaultEffects,createResizer,layout,hint,install,attachFilters,open,close,syncYear};
+})();

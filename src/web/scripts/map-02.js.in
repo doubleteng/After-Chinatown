@@ -1,0 +1,24 @@
+/* Runs only for the explicitly requested map view. Shared map data and controls stay intact. */
+(()=>{
+ if(!window.ATLAS_PAGE?.mapOnly)return;
+ document.documentElement.dataset.mapOnly='true';
+ function init(){
+  const panel=document.querySelector('section.window'),actions=panel?.querySelector('.map-window-actions');
+  if(actions){
+   const link=document.createElement('a');link.className='map-embed-link84';link.href='https://afterchinatown.org/';link.target='_blank';link.rel='noopener noreferrer';link.textContent='After Chinatown ↗';link.dataset.noTranslate='';actions.append(link);
+   const language=document.createElement('button');language.type='button';language.className='button quiet map-embed-language84';language.dataset.noTranslate='';
+   const labels=()=>{const zh=window.AtlasI18n?.language()==='zh';language.textContent=zh?'English':'中文';language.setAttribute('aria-label',zh?'Switch to English':'Switch to Chinese');};
+   language.onclick=()=>{window.AtlasI18n?.set(window.AtlasI18n.language()==='zh'?'en':'zh');};actions.append(language);labels();window.addEventListener('atlas-language-changed',labels);
+  }
+  // About and map-method links lead to the full site; source links keep their current place/year.
+  document.addEventListener('click',event=>{
+   const link=event.target.closest('a');if(!link)return;
+   if(link.id==='map-method-link'||link.getAttribute('href')==='#project-context'){
+    event.preventDefault();event.stopImmediatePropagation();window.open('https://afterchinatown.org/'+(link.id==='map-method-link'?'#method':'#project-context'),'_blank','noopener');
+   }
+  },true);
+  // Embedded search is ready in the existing UI; resize only once after this layout change.
+  window.dispatchEvent(new Event('resize'));
+ }
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
+})();

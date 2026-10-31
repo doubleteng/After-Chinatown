@@ -1,0 +1,21 @@
+{
+  "release": "105.1-public.1",
+  "prepared": "2026-10-30",
+  "upstream_build": "2026-10-04.105.1",
+  "upstream_package_sha256": "f33a777e9980572ca9c885dc792e81d583b3b6927e43fd1eb4ebad85f27a5e65",
+  "basis": "Most recent complete saved source package located for this publication; not a claim that live production has been freshly exported.",
+  "included": "Active application logic, decoded frontend sources, synthetic fixture, documentation and regression tests",
+  "omitted": [
+    "Archival image binaries and PDF reproductions",
+    "Production archive, spatial and activity datasets",
+    "Private Drive identifiers and deployment configuration",
+    "Contributor submissions and generation jobs",
+    "Historical rollback copies"
+  ],
+  "adaptations": [
+    "Extract compressed frontend into inspectable templates",
+    "Replace bundled production data with build-injected data files",
+    "Read deployment URL and archive root from Script Properties",
+    "Return NOT_INCLUDED for bundled photo adapters"
+  ]
+}

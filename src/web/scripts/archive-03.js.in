@@ -1,0 +1,63 @@
+
+(()=>{'use strict';
+ const $=id=>document.getElementById(id),config=window.ARCHIVE_PAGE,places={old:'Original Chinatown · Third / Porter',new:'Relocated Chinatown · Cass / Peterboro'};
+ let records=[],limit=12,features=null,map=null,loaded=false,selection=config.selection;
+ const categories80=[["municipal", "Municipal building records", "市政建筑记录", "#355b9d"], ["property", "Commercial property records", "商业房产记录", "#a85b16"], ["commerce", "Business use & occupancy", "商业业态记录", "#237849"], ["transport", "Municipal transport records", "市政交通记录", "#b63c42"], ["news", "News", "新闻", "#8b4697"], ["community", "Online leads", "网友线索", "#687442"], ["history", "Historical archives", "历史档案", "#775039"], ["oral", "Oral history", "口述历史", "#bc456d"], ["photo", "Historical imagery", "历史影像", "#167e83"], ["map", "Historical maps & surveys", "历史测绘地图", "#6556ac"]];
+ const zh80=()=>window.AtlasI18n?.language()==='zh';
+ const pick80=(r,key)=>zh80()&&r[key+'_zh']?r[key+'_zh']:r[key];
+ const reviewText80={en:"58 new records; 45 have approximate place associations and 13 remain unpinned. Original posts, dates, attribution and uncertainties are preserved. Repeat image posts were consolidated. Facebook search is ranked and incomplete; this is not a complete export of the group. Photo references link to originals; no Facebook image files were copied.",zh:"新增 58 条，其中 45 条有近似地点关联，13 条尚未定位。保留原帖、年代、署名及不确定性，并合并重复照片转帖。Facebook 搜索采用排序且可能遗漏，这不是群组完整导出。影像条目链接原来源，本次没有复制 Facebook 图片文件。"};
+ function localize80(){
+  const zh=zh80();$('archive-batch-label80').textContent=zh?'Cass Corridor 史料整理 · 2026 年 9 月':'Cass Corridor research · September 2026';
+  $('archive-category-title80').textContent=zh?'记录类别':'Record category';
+  Array.from($('archive-kind').options).forEach((o,i)=>o.textContent=i?categories80[i-1][zh?2:1]:(zh?'全部十类':'All ten categories'));
+  $('archive-review80').querySelector('summary').textContent=zh?'本次史料整理说明':'About this source review';
+  $('archive-review80').querySelector('p').textContent=reviewText80[zh?'zh':'en'];
+ }
+ window.addEventListener('atlas-language-changed',()=>{localize80();list();});
+ localize80();
+
+ const pageUrl=params=>config.appUrl+"?"+new URLSearchParams(Object.assign({},config.preview?{preview:"1"}:{},params)).toString();
+ const make=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
+ const call=(fn,arg)=>new Promise((resolve,reject)=>{if(!window.google?.script?.run){reject(new Error('Server connection unavailable.'));return;}const runner=google.script.run.withSuccessHandler(r=>r?.ok?resolve(r):reject(new Error(r?.message||'Could not load this record.'))).withFailureHandler(()=>reject(new Error('The archive could not be loaded. Please refresh to retry.')));arg===undefined?runner[fn]():runner[fn](arg);});
+ const link=(url,text)=>{const a=make('a',text);if(/^https:\/\//.test(url||'')){a.href=url;a.target='_blank';a.rel='noopener noreferrer';}return a;};
+ function filters(){return {place:$('archive-place').value,year:Number($('archive-year').value)||null,q:$('archive-search').value.trim(),kind:$('archive-kind').value,period:$('archive-period').value};}
+ function describe(f){
+  const contextual=!!(f.place||f.year||selection);$('page-heading').textContent=f.place&&f.year?'Sources for this place and year':contextual?'Filtered archive':'Browse the archive';
+  $('archive-context').hidden=!contextual;$('archive-context').textContent=[places[f.place]||'All places',f.year||'All dates'].join(' · ');
+  $('archive-intro').textContent=contextual?'Sources matched to the cataloged place and source date. Dates may refer to photographs, publication or recollection; check each record for its historical context.':'Explore photographs, maps, films and recollections of Chinese American life in Detroit. Check each record for its date and source.';
+
+  if(selection){$('archive-context').textContent+='$ · '.slice(1)+selection.radius+' m around the selected point';$('archive-intro').textContent='Located photographs are filtered by distance to their supported location marker. Written records may provide broader district context. The year filter uses source dates; clear the year to compare evidence from other dates.';}
+  $('back-to-scene').href=pageUrl(Object.assign({},f.place?{place:f.place}:{},f.year?{year:f.year}:{},selection?{lat:selection.point[1],lon:selection.point[0],radius:selection.radius}:{}));
+ }
+ function card(r){
+  const item=make('article');item.className='archive-card';item.dataset.recordId=r.id;
+  if(r.image_url){const im=make('img');im.alt=r.title;im.loading='lazy';im.decoding='async';im.src=r.image_url;im.onerror=()=>{im.hidden=true;};item.append(im);}
+  const category=categories80.find(c=>c[0]===r.category);
+  const kind=make('span',category?category[zh80()?2:1]:(r.source_kind||'source').replaceAll('_',' '));kind.className='kind';kind.setAttribute('data-no-translate','');if(category){kind.style.borderLeft='9px solid '+category[3];kind.style.paddingLeft='7px';}
+  const date=make('p',(zh80()?'史料年代：':'Source date: ')+(pick80(r,'date')||'Unknown'));date.className='date';date.setAttribute('data-no-translate','');const place=make('p',pick80(r,'place')||'Location unassigned');place.className='place';if(r.place_zh)place.setAttribute('data-no-translate','');
+  const title=make('h2',pick80(r,'title')),summary=make('p',pick80(r,'summary')||'Summary unavailable.');if(r.title_zh)title.setAttribute('data-no-translate','');if(r.summary_zh)summary.setAttribute('data-no-translate','');
+  item.append(kind,title,date,place,summary);
+  if(r.publication_date){const p=make('p',(zh80()?'原帖／出版日期：':'Post / publication date: ')+r.publication_date);p.className='date';p.setAttribute('data-no-translate','');item.append(p);}
+  if(r.location_unresolved){const p=make('p',zh80()?'位置未核实 · 不放地图点':'Location unresolved · no map pin');p.setAttribute('data-no-translate','');item.append(p);}
+  for(const url of r.related_source_urls||[])item.append(link(url,zh80()?'相关原始来源 ↗':'Related source ↗'));
+
+  if(r.source_url)item.append(link(r.source_url,zh80()?'查看原始史料 ↗':'Open source record ↗'));
+  for(const lead of r.related_media_leads||[]){const note=make('p',lead.description+' ');note.append(link(lead.source_url,'Open related source — image not acquired ↗'));item.append(note);}
+  if(r.has_private_image){const b=make('button','View image');b.type='button';b.className='button quiet';b.onclick=async()=>{b.disabled=true;try{const x=await call('getArchiveImage',r.id),im=make('img');im.decoding='async';im.src='data:'+x.mime+';base64,'+x.data;im.alt=r.title;item.prepend(im);b.remove();}catch(e){b.textContent=e.message;b.disabled=false;}};item.append(b);}
+  if(r.source_kind==='archive_lead'){const p=make('p',zh80()?'线索中尚未核实的部分见条目说明。':'See the record for the parts that remain unverified.');p.setAttribute('data-no-translate','');item.append(p);}
+  if(r.spatial){const p=make('p',zh80()&&r.id.startsWith('R80_')?'按已有核对位置作地点关联，不代表测量得到的拍摄点或入口。位置不确定范围 ±'+r.spatial.uncertainty_m+' 米':r.spatial.basis+' · position uncertainty ±'+r.spatial.uncertainty_m+' m');if(r.id.startsWith('R80_'))p.setAttribute('data-no-translate','');item.append(p);}
+  if(r.credit){const credit=make('p',r.credit);credit.className='credit';item.append(credit);}return item;
+ }
+ function list(){
+  const valid=$('archive-year').validity.valid;$('filter-error').hidden=valid;if(!valid)return;
+  const f=filters();describe(f);if(!loaded)return;
+  const found=records.filter(r=>(!$("archive-batch80").checked||r.id.startsWith("R80_"))&&ArchiveFilter.matches(r,f)&&(!selection||(!Spatial.photo(r)&&ArchiveFilter.districts(r).includes(selection.district))||(r.spatial&&Spatial.distance(selection.point,r.spatial.point)<=selection.radius)));$('archive-grid').replaceChildren(...found.slice(0,limit).map(card));$('archive-count').textContent=found.length+' matching '+(found.length===1?'record':'records')+' · '+records.length+' catalog records';$('archive-more').hidden=found.length<=limit;$('archive-empty').hidden=!!found.length;
+  $('empty-message').textContent=f.place&&f.year?'The published archive has no source with a cataloged location matching '+places[f.place]+' and a source date matching '+f.year+'. Undated or unlocated material remains available in the full archive.':'No published records match these filters.';
+ }
+ $('brand-home').href=pageUrl({});for(const id of ['browse-all','empty-browse'])$(id).href=pageUrl({page:'archive'});$('build').textContent='Build '+config.build;
+ if(location.hash==='#cass-corridor-2026')$('archive-batch80').checked=true;$('archive-place').value=config.place||'';$('archive-year').value=config.year||'';describe(filters());
+ $('archive-filters').onsubmit=e=>{e.preventDefault();limit=12;list();};
+ for(const id of ['archive-place','archive-year','archive-kind','archive-period','archive-batch80'])$(id).onchange=()=>{limit=12;list();};$('archive-search').oninput=()=>{limit=12;list();};
+ $('clear-filters').onclick=()=>{$('archive-filters').reset();$('archive-batch80').checked=false;selection=null;limit=12;list();};$('archive-more').onclick=()=>{limit+=12;list();};
+ call('getArchiveIndex').then(r=>{records=r.records;features=r.places;loaded=true;list();}).catch(e=>{$('archive-count').textContent=e.message;$('archive-count').classList.add('error');});
+})();

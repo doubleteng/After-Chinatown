@@ -1,0 +1,404 @@
+/* Shared question dates. A street number must not move the historical timeline. */
+const HistoryQuery=(()=>{
+ const minYear=1900,maxYear=2026;
+ const messages={
+  BAD_INPUT:['Enter a question of 1–500 characters.','请输入 1–500 字的历史问题。'],
+  MULTIPLE_YEARS:['Ask about one year at a time.','请每次询问一个年份。'],
+  YEAR_INTERVAL:['Choose one exact year for this question; a decade cannot select one map view.','请指定一个确切年份；年代范围无法对应一个地图视图。'],
+  BAD_YEAR:['The map covers 1900–2026. Browse the archive for earlier material.','地图涵盖 1880–2026 年。更早的资料可在档案中查阅。']
+ };
+ function message(code,language){return (messages[code]||messages.BAD_INPUT)[language==='zh'?1:0];}
+ function resolve(value,currentYear){
+  const question=typeof value==='string'?value.trim():'';
+  if(!question||question.length>500)return {ok:false,code:'BAD_INPUT'};
+  const normalized=question.replace(/[０-９]/g,c=>String(c.charCodeAt(0)-0xff10));
+  const years=new Set();let interval=false;
+  const tokens=normalized.matchAll(/(?:^|[^\d])((?:1\d|20|21)\d{2})(?!\d)/g);
+  for(const match of tokens){
+   const index=match.index+match[0].length-4,before=normalized.slice(0,index),after=normalized.slice(index+4);
+   // Four digits inside identifiers are not calendar years. Chinese 年 is explicit.
+   const explicit=/^\s*年(?!代)/.test(after);
+   if(!explicit&&(/[A-Za-z_]$/.test(before)||/^[A-Za-z_]/.test(after)&&!/^s\b/i.test(after)))continue;
+   const address=/^\s*(?:号|號)/.test(after)||
+    /^\s*(?:Cass|Peterboro|Third|Porter|Bagley|Woodward|Michigan|Trumbull|Grand River)\b/i.test(after)||
+    /^\s+(?:[A-Z][A-Za-z.'’\-]*\s+){1,4}(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Court|Ct\.?)\b/.test(after)||
+    /(?:address|street\s+number|门牌(?:号)?|地址)\s*[:：#]?\s*$/i.test(before);
+   if(address&&!explicit)continue;
+   if(/^\s*(?:s\b|年代)/i.test(after))interval=true;
+   years.add(Number(match[1]));
+  }
+  if(years.size>1)return {ok:false,code:'MULTIPLE_YEARS'};
+  if(interval)return {ok:false,code:'YEAR_INTERVAL'};
+  const year=years.size?[...years][0]:Number(currentYear);
+  if(!Number.isInteger(year)||year<minYear||year>maxYear)return {ok:false,code:'BAD_YEAR'};
+  return {ok:true,question,year,explicitYear:years.size===1};
+ }
+ return {minYear,maxYear,message,resolve};
+})();
+if(typeof module!=='undefined')module.exports=HistoryQuery;
+
+const AddressJourney=(()=>{
+ function normalize(s){return String(s||'').toLowerCase().replace(/[’']/g,'').replace(/\b2nd\b/g,'second').replace(/\b3rd\b/g,'third').replace(/\bave(?:nue)?\.?\b/g,' ').replace(/\bst(?:reet)?\.?\b/g,' ').replace(/\bblvd|boulevard\b/g,' ').replace(/\bdetroit|michigan|mi\b/g,' ').replace(/[^a-z0-9\u3400-\u9fff]+/g,' ').trim().replace(/\s+/g,' ');}
+ function parse(address,year){let a=String(address||'').trim(),y=String(year||'').trim();const m=a.match(/(?:[,，;@]\s*|\s+(?:in|year)\s+)(\d{4})\s*年?$/i);if(m){y=m[1];a=a.slice(0,m.index).trim();}if(!a)return {ok:false,error:'Enter an address or building name.'};if(!/^\d{4}$/.test(y)||+y<1880||+y>2026)return {ok:false,error:'Choose a year from 1880 to 2026.'};return {ok:true,address:a,year:+y};}
+ function index(data,records,hover,timeline){const items=[],seen=new Map();function add(name,point,id,rank=0){if(!name||!point||point.length!==2||!point.every(Number.isFinite))return;if(!/[a-z\u3400-\u9fff]/i.test(name)||/^(Source-map|mapped|source map|Building trace|Inventory building)/i.test(name))return;const key=normalize(name)+'|'+point.map(x=>x.toFixed(4)).join(',');if(seen.has(key))return;seen.set(key,true);items.push({name,point,id,rank,key:normalize(name)});}
+ const ids=new Set(timeline.buildings.flatMap(e=>e.referenceModel?.envelopeIds||[]));for(const b of data.buildings){if(b.representation==='source-ink-only')continue;const ref=data.addressReview?.records?.[b.id];add(b.reviewed_name||b.name,b.center,b.id,ids.has(b.id)?20:0);if(ref){add(ref.address,b.center,b.id,ids.has(b.id)?22:ref.kind==='street'?-10:2);for(const name of ref.inventoryAliases||[])add(name,b.center,b.id,1);if(ref.kind==='street')add(ref.address+' · '+b.id,b.center,b.id,-15);}}
+ for(const b of data.buildings)for(const alias of MerchantHistory.aliases(b))add(alias,b.center,b.id,32);
+ for(const p of data.storyPlaces||[])add(p.name,p.point,p.id,15);for(const r of records){const h=hover.records[r.id];if(h?.location)add(h.location.place,h.location.point,h.location.building_id||r.id,10);}
+ // Explicit alias derived from the verified tenant-address record.
+ const bird=items.find(x=>x.id==='r56-cass3401');if(bird)add('Bird Town Pet Shop / Craig’s Coffee · 412 Peterboro',bird.point,bird.id,25);
+ return items;}
+ function search(items,q){q=normalize(q.replace(/(?:[,，;@]\s*|\s+(?:in|year)\s+)\d{4}\s*年?$/i,''));if(q.length<2)return [];const terms=q.split(' '),number=terms.find(x=>/^\d+$/.test(x));let out=[];for(const x of items){if(number&&!x.key.split(' ').includes(number))continue;if(!terms.every(t=>x.key.includes(t)))continue;out.push({...x,score:(x.key===q?100:x.key.startsWith(q)?65:40)+x.rank});}out.sort((a,b)=>b.score-a.score||a.name.length-b.name.length);const points=new Set();return out.filter(x=>{const k=x.point.map(v=>v.toFixed(4)).join(',');if(points.has(k))return false;points.add(k);return true;}).slice(0,8);}
+ return {normalize,parse,index,search};
+})();
+
+(async()=>{'use strict';
+ const $=id=>document.getElementById(id),cfg=window.ATLAS_PAGE,data=await window.SpatialDataReady,timeline=window.TIMELINE_DATA;
+ const state={records:Spatial.enrich(window.CURATED_ARCHIVE.records,data),context:null,nearby:[],primary:null,references:[],answer:null,revision:0,token:null,job:{},modelLoaded:false,confirmed:null,busy:false,renderBusy:false,historyPending:false,config:{},modelUrl:null,viewMode:'context',inputMode:'history',questionDraft:'',renderDraft:'',renderEvidence:null};
+ let modelRequest=null,renderRequest=null,askRevision=0;
+ const make=(t,text,cls)=>{const e=document.createElement(t);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;};
+ const call=(name,arg)=>new Promise((resolve,reject)=>{if(!window.google?.script?.run){reject(new Error('Server connection unavailable.'));return;}const r=google.script.run.withSuccessHandler(x=>x?.ok?resolve(x):reject(Object.assign(new Error(x?.message||'The request could not be completed.'),{code:x?.code,token:x?.token,renderStatus:x?.renderStatus,retryable:x?.retryable}))).withFailureHandler(()=>reject(new Error('The server request was interrupted. Check a saved task before submitting it again.')));arg===undefined?r[name]():r[name](arg);});
+ const link=(url,label)=>{const a=make('a',label);if(/^https:\/\//.test(url||'')){a.href=url;a.target='_blank';a.rel='noopener noreferrer';}return a;};
+ const url=params=>cfg.appUrl+'?'+new URLSearchParams(Object.assign({},cfg.preview?{preview:'1'}:{},params)).toString();
+ const currentRecord=()=>state.records.find(r=>r.id===state.primary);
+ const viewer=async()=>{if(!window.SpatialViewerReady)await new Promise((ok,no)=>{const start=Date.now(),t=setInterval(()=>{if(window.SpatialViewerReady){clearInterval(t);ok();}else if(Date.now()-start>20000){clearInterval(t);no(new Error('The 3D viewer has not loaded.'));}},100);});return window.SpatialViewerReady;};
+ window.addEventListener('atlas-language-changed',()=>{const hadAnswer=!!state.answer||state.historyPending;askRevision++;state.answer=null;if(hadAnswer)$('question-message').textContent='Language changed. Submit your question again for an answer in this language.';readStreet();controls();});
+ $('build-label').textContent=cfg.build;$('draft-label').hidden=!cfg.preview;
+ for(const id of ['nav-archive','all-archive'])$(id).href=url({page:'archive'});
+ $('context-archive').href=url({page:'archive'});
+ $('map-method-link').onclick=e=>{e.preventDefault();if(MobileAtlas.compact())MobileAtlas.open('info',e.currentTarget);$('method').open=true;$('method').scrollIntoView({behavior:'smooth'});};
+ for(const a of data.areas){const box=make('p');box.append(make('strong',a.name+'. '),document.createTextNode(a.note+' '));a.sources.forEach((u,i)=>box.append(link(u,'Place reference '+(i+1)+' ↗'),document.createTextNode(' ')));box.append(link(a.map_url,a.map_title+' ↗'));$('area-methods').append(box);}
+ function contextTitle(){if(!state.context)return 'Select a place';const district=state.context.district;return (district==='old'?'Third Avenue / downtown':'Cass / Peterboro')+' · '+state.context.year;}
+ function controls(){const source=currentRecord(),available=source?.generation_eligible&&state.nearby.some(x=>x.record.id===source.id),locked=state.busy||state.renderBusy,uncertain=['SUBMITTING','UNCERTAIN'].includes(state.job.renderStatus),renderMode=state.inputMode==='render';
+ $('question-form').setAttribute('aria-busy',String(state.historyPending));$('ask').disabled=locked||state.historyPending||!state.context||(renderMode&&(!state.modelLoaded||!state.confirmed||!state.config.renderReady||uncertain||state.config.renderRequestsRemaining===0));$('ask').textContent=state.historyPending?'Reading sources…':renderMode?(state.job.renderRetryable?'Retry speculative photo generation':'Speculative photo generation'):'Ask this place';
+ $('prepare-model').hidden=!state.context||state.modelLoaded||state.viewMode==='photo';$('prepare-model').disabled=!available||locked;
+ $('start-model').disabled=!cropImage||locked||!state.config.modelReady||!state.config.storageReady||state.config.modelRequestsRemaining===0;
+ $('confirm-view').hidden=!state.modelLoaded||state.viewMode==='photo';$('confirm-view').disabled=locked; $('confirm-view').textContent=state.confirmed?'View confirmed ✓':'Confirm this view';
+ $('check-render').hidden=!uncertain;$('tab-street').disabled=!state.context||locked;$('tab-model').disabled=!state.modelLoaded||locked;$('tab-photo').disabled=!state.job.renderReady||locked;$('tab-context').disabled=locked;
+ $('focus-scene').hidden=!state.context||state.viewMode==='photo';$('heading-control').hidden=!state.modelLoaded||state.viewMode==='photo';$('reset-alignment').hidden=$('heading-control').hidden;$('reset-alignment').disabled=locked;
+ for(const id of ['show-regional','tab-regional','area','year','radius','model-heading','time-slider','prompt-mode','show-rendering','show-basemap','show-historical-map','show-roads','show-rail','show-road-labels','show-building-labels','show-chinatown-labels'])$(id).disabled=locked;
+ document.querySelectorAll('#year-ticks button').forEach(b=>b.disabled=locked);document.querySelectorAll('.atlas-label').forEach(b=>{if(b.tagName==='BUTTON')b.disabled=locked;});viewer().then(v=>v.lock(locked)).catch(()=>{});
+ }
+ function inputMode(next){if(next==='render')$('question-panel').open=true;if(next===state.inputMode)return;askRevision++;if(state.inputMode==='history')state.questionDraft=$('question').value;else state.renderDraft=$('question').value;state.inputMode=next;$('prompt-mode').value=next;$('question').value=next==='history'?state.questionDraft:state.renderDraft;$('question').maxLength=next==='history'?500:1600;$('question').placeholder=next==='history'?'What did this place look like in 1935?':'Describe atmosphere, everyday activities, or a critical fabulation you want to explore.';$('prompt-label').textContent=next==='history'?'What would you like to know about this place?':'Your direction for the speculative photo';$('question-message').textContent='';controls();}
+ $('prompt-mode').onchange=()=>inputMode($('prompt-mode').value);
+ function invalidate(){if(state.confirmed)$('generation-message').textContent='View changed. Confirm the new camera before generating a photograph.';state.confirmed=null;renderRequest=null;controls();}
+ window.addEventListener('reconstruction-view-changed',invalidate);
+ async function availability(){try{state.config=await call('getGenerationStatus');const c=state.config;$('generation-allowance').textContent=c.modelRequestsRemaining+' / '+c.dailyModelLimit+' model requests and '+c.renderRequestsRemaining+' / '+c.dailyRenderLimit+' photo requests remain today, shared by all visitors. Resets at 00:00 UTC.';}catch(e){$('generation-allowance').textContent=e.message;}controls();}
+ function resetGeneration(mode=state.viewMode==='context'?'context':'street'){state.token=null;state.job={};state.modelLoaded=false;state.confirmed=null;state.renderEvidence=null;state.viewMode=mode;modelRequest=null;renderRequest=null;cropEpoch++;$('crop-panel').hidden=true;$('provenance-section').hidden=true;$('rendered-result').hidden=true;$('model-adjust').hidden=true;$('download-render').hidden=true;$('render-provenance').replaceChildren();$('generation-message').textContent='';$('model-heading').value='0';if(state.modelUrl){URL.revokeObjectURL(state.modelUrl);state.modelUrl=null;}setTab(mode,false);}
+ async function setTab(mode,move=true){state.viewMode=mode;for(const m of ['context','street','model','photo'])$('tab-'+m).classList.toggle('active',m===mode);$('rendered-result').hidden=mode!=='photo';document.querySelector('.basemap-credit').hidden=mode==='photo'||(!$('show-basemap').checked&&!$('show-historical-map').checked);$('atlas-labels').hidden=mode==='photo';$('place-heading').hidden=mode==='photo';
+ $('scene-badge').textContent=mode==='photo'?'Speculative photo':mode==='model'?'Detailed model':mode==='street'?'Street view':'Historical map';
+ $('view-hint').dataset.noTranslate='';$('view-hint').textContent=mode==='photo'?(AtlasI18n.language()==='zh'?'生成的解释性图像，并非历史照片':'Generated interpretation · not an archival photograph'):StreetCamera77.hint(mode==='street',MobileAtlas.compact(),AtlasI18n.language()==='zh',Number($('scene').dataset.cameraLensMm)||43);if(move)try{(await viewer()).mode(mode);}catch(e){$('view-mode').textContent=e.message;}controls();window.dispatchEvent(new CustomEvent('street-state102'));}
+ for(const m of ['context','street','model','photo'])$('tab-'+m).onclick=()=>setTab(m);
+ $('focus-scene').onclick=async()=>{try{(await viewer()).focus();}catch(e){$('view-mode').textContent=e.message;}};
+ $('reset-alignment').onclick=async()=>{$('model-heading').value='0';(await viewer()).heading(0);};
+ $('model-heading').oninput=async()=>{try{(await viewer()).heading(Number($('model-heading').value));}catch(e){$('view-mode').textContent=e.message;}};
+
+ function timeStatus(){window.RegionalMap?.refresh();const y=Number($('year').value),d=$('area').value||null,info=Chronology.summary(data,timeline,y,d);$('year-display').textContent=String(y);MobileAtlas.syncYear();$('time-slider').value=Math.max(1900,y);const root=$('temporal-status');root.replaceChildren(make('span',info.documented+' dated observations · '+info.continuity+' documented continuity · '+info.demolished+' removed · '+info.unresolved+' unresolved'));
+ const known=info.buildings.find(b=>b.status==='demolished');if(known)root.append(make('strong',known.name+' · '+known.label));else if(d==='new'&&y<1963)root.append(make('span','Before the 1963 Chinatown relocation'));
+ const sources=$('map-evidence');sources.replaceChildren();
+ if(!info.surveys.length)sources.append(make('p','No mapped building survey is available at or before this year.'));
+ const seen=new Set();for(const survey of info.surveys){const key=survey.source_url;if(seen.has(key))continue;seen.add(key);const label=survey.kind==='inventory'?'2010–2024 building inventory ↗':survey.kind==='aerial'?survey.year+' aerial evidence ↗':survey.year+' map evidence ↗';sources.append(link(survey.source_url,label));}
+ $('map-coverage').textContent=info.surveys.some(s=>s.kind==='inventory')?(y>2024?'2024 reference only; later building states are unverified.':'2010–2024 inventory: recorded life dates control visibility; earlier forms and heights remain approximate.'):'Partial map tracings. Empty space may be untraced; it does not establish vacant land. Between surveys, volumes retain the last mapped form.';
+ $('semcog-credit').hidden=false;
+ const aerial=info.surveys.some(s=>s.kind==='aerial');if(aerial)$('map-coverage').textContent='Selected visible roofs from the 2005 aerial image. Roof edges, ground footprints and heights differ. Empty space may be untraced; it does not establish vacant land.';
+ const context=$('early-context');context.replaceChildren();const early=(timeline.contextSources||[]).find(c=>y>=c.year&&y<=c.to);context.hidden=y>=1884;
+ if(y<1884){const zh=AtlasI18n.language()==='zh';context.setAttribute('data-no-translate','');context.append(make('strong',zh?'早期空间史 · 建筑图层尚有空缺':'Earlier spatial history · building layer unresolved'));if(early){context.append(link(early.url,(zh?early.zhTitle:early.title)+' ↗'),make('p',zh?early.zh:early.note));}else context.append(make('p',zh?'研究时间范围从 1800 年开始；早期具名建筑和明确标注为推测的体量，补充了尚不完整的历史地图层。空白表示尚无可靠模型数据，不能证明这里没有建筑。':'Research begins in 1800. Early named buildings and explicitly conjectural inventory references supplement partial historical map surveys. A blank layer means missing model evidence, not an empty landscape.'));}
+ const references=info.buildings.filter(b=>b.referenceGeometry);if(references.length){$('map-coverage').append(document.createTextNode(' '+references.length+' landmark volumes use a dated reference form; presence follows individual life dates, while intervening alterations remain unresolved.'));sources.append(link('https://www.jeffbondono.com/DetroitHistoricDistricts/CassPark/Cass%20Park%20Final%20Report.pdf','Building histories and date conflicts ↗'));}
+ const rasters=AtlasLayers.overlays(window.HISTORICAL_RASTERS,data,timeline,y);$('underlay-note').textContent=rasters.length?rasters.length+' registered historical images':'No registered historical image for this year';
+ const zh=AtlasI18n.language()==='zh';$('extent-note').textContent=zh?'地图体量为不透明；现代清册推测的未知存续体量为 25% 透明。淡黄色表示有记录支持总存续超过 50 年，粉色优先表示该年的唐人街关联。':'Mapped masses are opaque. Uncertain inventory backcasts are 25% transparent. Pale yellow denotes a documented total building life over 50 years; dated Chinatown associations take color priority.';roadStatus();document.querySelectorAll('#year-ticks button').forEach(b=>b.classList.toggle('active',Number(b.dataset.year)===y));
+ const milestone=$('milestone-description');milestone.replaceChildren();milestone.setAttribute('data-no-translate','');for(const r of AtlasLayers.milestoneAt(timeline,y))milestone.append(link(r.url,y+' · '+(zh?r.zh:r.title)+' ↗'));}
+
+ function roadStatus(){const y=Number($('year').value),d=$('area').value||null,info=Roads.summary(data,y,d),root=$('road-source-list'),zh=AtlasI18n.language()==='zh';root.replaceChildren();root.setAttribute('data-no-translate','');$('road-status').setAttribute('data-no-translate','');
+ $('road-status').textContent=!$('show-roads').checked?(zh?'历史道路已隐藏':'Historical roads hidden'):!info.rows.length?(zh?'该年尚无已提取的道路图层。空白不表示没有道路。':'No digitized road survey for this year. Blank space does not mean no roads.'):(zh?`道路：${info.observed} 段当年观测 · ${info.reference} 段参考走向 · ${info.legalFootprints} 块道路用地记录 · ${info.changeTraces} 处变更轮廓`:`Roads: ${info.observed} observed · ${info.reference} reference segments · ${info.legalFootprints} ROW footprints · ${info.changeTraces} change traces`);
+ root.append(make('p',zh?'深蓝：有依据支持走向延续至今；不代表路宽、铺装或用途未改变。淡蓝：道路已变化或连续性尚未确认。外围 1912 年道路仅核对了图上具名走廊，采用现代中心线作近似定位；尚未复原消失的支路。路名按层级逐步显示：先主干道，再次干道，最后小街巷。':'Dark blue: supported long-lived alignment, not unchanged width, paving or use. Light blue: changed or continuity unresolved. Outer 1912 corridors use modern reference centerlines after name/network comparison; erased side streets remain incomplete. Road names appear by hierarchy: main routes first, minor streets and alleys at closer zoom.'));root.append(make('p',zh?'新增多边形保留市政府道路用地轮廓。填色范围包含有日期的道路用地及历次法律变更记录。时间轴按所选年末的法律记录显示，不代表道路实际开通、拆除或持续存在。部分废止只切除重叠范围；日期未知的记录不进入时间轴。高程、桥梁和下穿尚未重建。':'New polygons preserve municipal right-of-way (ROW) geometry. Filled surfaces include dated road records and earlier legal-change footprints. The timeline uses legal records through year-end, not physical opening, demolition or continuous survival. Partial vacations cut only the overlapping land. Undated records stay outside the timeline. Road elevations, bridges and cuttings remain unresolved.'));
+ const pt=state.context?.point||data.areas.find(a=>a.id===d)?.center||data.areas[0].center,near=Roads.evidence(data,y,pt,6);root.append(make('p',zh?'街道断口已用具名历史走廊和相邻道路的延长线补接；推测连接不等于已核实的历史路口。高速主线、匝道和辅路已分开；下沉路槽与跨街桥按空间层次显示。点击道路史料圆点查看桥面宽度、净空及高程推算依据。历史路幅变化未逐段核实。':'Gaps are joined using historically named corridors and continuations of adjacent streets. Inferred links do not establish verified historical junctions. Freeway mainlines, ramps and frontage streets are separated. Depressed cuts and crossing bridges have distinct levels. Click road source dots for widths, clearances and derived grades; historical widening remains unresolved.'));root.append(make('strong',zh?'所选位置附近的道路记录':'Road records near your selection'));
+ for(const r of near){const types=zh?{dedication:'划定／拓宽',vacation:'废止',easement:'地役权变更'}:{dedication:'dedication / widening',vacation:'vacation',easement:'easement change'};const p=make('p',`${r.event_date} · ${r.name} · ${types[r.event_type]} · ~${r.distance_m} m `);p.dataset.roadRecord=r.id;p.append(link(r.decision_url||r.source_url,zh?'原始记录 ↗':'Source record ↗'));root.append(p);}
+ root.append(make('strong',zh?'实际通车与拆除核实':'Physical openings & removals'));
+ for(const r of Roads.physicalEvidence(data,y,pt,9)){const date=r.opening?(r.opening.type==='in_service_by'?(zh?r.opening.date.slice(0,4)+' 年底前':'By end of '+r.opening.date.slice(0,4)):r.opening.date):(r.removal.last_mapped+'–'+r.removal.changed_by),p=make('p',date+' · '+(zh?r.zhName:r.name)+' — '+(zh?r.zh:r.note));p.dataset.physicalReview=r.id;p.append(document.createTextNode(' '),link(r.source_url,zh?'依据 ↗':'Evidence ↗'));if(r.comparison_url)p.append(document.createTextNode(' '),link(r.comparison_url,zh?'对照航拍 ↗':'Comparison aerial ↗'));root.append(p);}
+ root.append(make('p',zh?'通车史料尚未对应到已精确配准的匝道几何，因此不会据此自动补画匝道。1950—2005 年的拆除区间表示证据间隔，不是道路一直存在至 2004 年。':'Opening records do not yet supply precisely registered ramp geometry, so they do not automatically draw ramps. A 1950–2005 removal interval marks a gap between observations, not survival through 2004.'));
+ root.append(make('strong',zh?'地图位置核查':'Map placement checks'));
+ for(const q of data.mapRegistrationReviews||[]){root.append(make('p',(zh?q.zh:q.note)));root.append(link(q.source_url,zh?'配准原图与控制点 ↗':'Registered source & control points ↗'));}
+ root.append(link('https://detroitmi.gov/departments/department-public-works/maps-and-records',zh?'市政府道路档案与原图 ↗':'Municipal road archives & original plans ↗'));
+ const urls=new Set();for(const survey of info.surveys)for(const u of survey.sourceUrls){if(urls.has(u))continue;urls.add(u);root.append(link(u,`${survey.year} ${zh?'年道路依据':'road evidence'} ↗`));}
+ const notes=(data.roadChanges||[]).filter(n=>!d||n.district===d);for(const n of notes){const p=make('p',zh?n.zh:n.text);for(const u of n.urls)p.append(document.createTextNode(' '),link(u,zh?'来源 ↗':'Source ↗'));root.append(p);}
+ }
+ async function mapLayers(){const v=await viewer();v.basemapVisible($('show-basemap').checked);v.historicalVisible($('show-historical-map').checked);document.querySelectorAll('[data-map-legend]').forEach(e=>e.hidden=!$('show-historical-map').checked);document.querySelector('.basemap-credit').hidden=state.viewMode==='photo'||(!$('show-basemap').checked&&!$('show-historical-map').checked);timeStatus();}
+ $('show-basemap').onchange=mapLayers;$('show-historical-map').onchange=mapLayers;
+ for(const [id,method,legend] of [['show-rail','railVisible','[data-rail-legend]']])$(id).onchange=async()=>{const on=$(id).checked;(await viewer())[method](on);if(legend)document.querySelectorAll(legend).forEach(e=>e.hidden=!on);};
+ for(const [id,kind] of [['show-road-labels','roads'],['show-building-labels','buildings'],['show-chinatown-labels','chinatown']])$(id).onchange=async()=>{(await viewer()).labelsVisible(kind,$(id).checked);};
+ $('show-roads').onchange=async()=>{const on=$('show-roads').checked;(await viewer()).roadsVisible(on);document.querySelectorAll('[data-road-legend]').forEach(e=>e.hidden=!on);roadStatus();};
+ let snapRows=[];
+ function archiveTicks(){snapRows=TimelineSnap.milestones(timeline);const root=$('year-ticks');root.replaceChildren();const zh=AtlasI18n.language()==='zh';for(const row of snapRows){const button=make('button'),title=row.year+' · '+(zh?row.zh:row.title);button.type='button';button.dataset.year=row.year;button.setAttribute('aria-label',title);button.title=title;button.style.left=((row.year-1900)/126*100)+'%';button.append(make('span',undefined,'archive-dot'));button.classList.toggle('active',row.year===Number($('year').value));button.onclick=()=>changeYear(row.year);root.append(button);}}
+ new ResizeObserver(()=>archiveTicks()).observe($('year-ticks'));
+ archiveTicks();
+ window.addEventListener('atlas-language-changed',()=>{archiveTicks();timeStatus();});
+ function recordLabel(r){return r.title+' · '+r.date;}
+ function referenceChoices(){const root=$('reference-list');root.replaceChildren();const primary=currentRecord();if(!primary){root.append(make('p','Select a photograph above.','small'));return;}const info=make('p',recordLabel(primary)+' · original model reference','small');root.append(info);const opts=state.nearby.filter(x=>x.record.id!==state.primary);state.references=state.references.filter(id=>opts.some(x=>x.record.id===id)).slice(0,3);for(const x of opts.slice(0,12)){const r=x.record,row=make('label',undefined,'reference-choice'),check=make('input');check.type='checkbox';check.value=r.id;check.checked=state.references.includes(r.id);check.disabled=state.renderBusy;check.onchange=()=>{if(check.checked&&state.references.length>=3){check.checked=false;$('generation-message').textContent='Choose up to three additional photographs.';return;}state.references=check.checked?state.references.concat(r.id):state.references.filter(id=>id!==r.id);};const caption=make('span',r.title);caption.append(make('small',r.date+' · ~'+Math.round(x.distance)+' m to marker'),make('small',r.spatial.basis,'metadata'));row.append(check,caption);root.append(row);}$('references-summary').textContent='Historical references · original + '+state.references.length+' nearby photographs';}
+ function renderSources(){ referenceChoices();controls();}
+ function citations(ids){const wrap=make('span');for(const id of ids){const r=state.records.find(x=>x.id===id);if(r){const a=link(r.source_url,id);a.className='citation';a.title=r.title;wrap.append(a);}}return wrap;}
+ function readStreet(){if(!state.context)return;$('reading').classList.add('has-selection');document.querySelector('.archive-links').classList.add('has-selection');if(!$('reading').dataset.seenSelection||state.answer){$('reading').open=true;$('reading').dataset.seenSelection='true';}const zh=AtlasI18n.language()==='zh';$('question-context').setAttribute('data-no-translate','');$('question-context').textContent=(zh?'所选位置：':'Selected point: ')+state.context.point[1].toFixed(5)+', '+state.context.point[0].toFixed(5)+' · '+state.context.year+(zh?' 年 · ':' · ')+state.context.radius+(zh?' 米半径。问题中的地址不会自动移动地图选点。':' m radius. An address in your question does not move the selected point.');$('reading-context').textContent=contextTitle();const h=$('history-answer'),g=$('reading-gaps'),r=$('source-readings');h.replaceChildren();g.replaceChildren();r.replaceChildren();if(state.answer){const query=make('p',state.answer.question,'submitted-question');query.setAttribute('data-no-translate','');h.append(make('p','Your question','eyebrow'),query,make('p',(state.answer.cached?'Cached':'AI-assisted')+' source interpretation','eyebrow'));state.answer.paragraphs.forEach(x=>{const p=make('p',x.text);p.append(citations(x.sourceIds));h.append(p);});state.answer.gaps.forEach(x=>g.append(make('p',x,'gap')));}else h.append(make('p','The following readings come from catalog descriptions and reviewed source notes. Ask about this selection to connect them to your question.'));
+ const active=Chronology.visibleBuildings(data,timeline,state.context.year,state.context.district),building=active.find(b=>Chronology.contains(b,state.context.point));
+ if(building){const landmarkProfile=LandmarkArchitecture.profile(building,state.context.year),coreProfile=CoreArchitecture.profile(building,state.context.year),status=Chronology.state(building,state.context.year,timeline),entry=Chronology.entity(building,timeline),card=make('article',undefined,'reading-record');card.append(make('h3','Building at this point'),make('p',status.name),make('p',status.label),make('p',building.height_basis,'small'),link(building.source_url,'Open the building’s map source ↗'));const address=BuildingAddress.resolve(data,building,state.context.year,zh),addressCard=make('div',undefined,'building-address-card');addressCard.setAttribute('data-no-translate','');addressCard.append(make('strong',address.primary),make('p',address.qualifier),make('p',(zh?'所选年份：':'Selected year: ')+state.context.year+' · '+address.coordinates,'small'));for(const note of address.notes)addressCard.append(make('p',note,'small'));for(const s of address.links)addressCard.append(link(s.url,s.label+' ↗'));card.insertBefore(addressCard,card.children[1]);if(FreewayClearance.note(building))card.append(make('p',FreewayClearance.note(building),'small'));if(building.studyArea72){const q=building.studyArea72;card.append(make('p',(q.boundary?'Boundary building · footprint crosses the 300 m circle':'Footprint within the 300 m circle')+' · nearest edge '+q.footprintMinM+' m · farthest corner '+q.footprintMaxM+' m','small'));}if(building.lifeUnknown){for(const q of building.lifeUnknown)card.append(make('p',q.type+' · date unknown — '+q.text,'small'));}const merchantPanel=MerchantHistory.panel(building,state.context.year,zh,changeYear);if(merchantPanel)card.append(merchantPanel);const researchPanel=CassCorridorResearch87.panel(building,state.context.year,zh);if(researchPanel)card.append(researchPanel);const phase=building.exteriorPhases?.find(p=>state.context.year>=p.from&&state.context.year<=p.through);if(phase){const note=make('p',zh?phase.text_zh:phase.text,'core-evidence-note');note.setAttribute('data-no-translate','');card.append(note);}const referenceProfile=LandmarkArchitecture.profiles.find(p=>p.ids.includes(building.id)&&p.from>state.context.year);if(referenceProfile){const next=make('button',zh?'查看 '+referenceProfile.from+' 年外观参考':'View '+referenceProfile.from+' exterior reference');next.type='button';next.setAttribute('data-no-translate','');next.onclick=()=>changeYear(referenceProfile.from);card.append(next);}
+ if(landmarkProfile&&status.showVolume){const note=make('p',LandmarkArchitecture.note(landmarkProfile,zh),'core-evidence-note');note.setAttribute('data-no-translate','');card.append(note);for(const key of landmarkProfile.sources){const s=LandmarkArchitecture.sources[key];card.append(link(s.url,s.label+' ↗'));}}if(coreProfile&&status.showVolume){const note=make('p',CoreArchitecture.note(coreProfile,zh),'core-evidence-note');note.setAttribute('data-no-translate','');card.append(note);for(const key of coreProfile.sources){const s=CoreArchitecture.sources[key];card.append(link(s.url,s.label+' ↗'));}}if(entry?.standingThrough){const zh=AtlasI18n.language()==='zh',tag=make('p',entry.standingThrough===2026?(zh?'时间线涵盖至 2026 年 · 存续证据见来源及阶段说明':'Timeline coverage through 2026 · see survival evidence and phase notes'):(zh?'存续证据截至 '+entry.standingThrough:'Survival documented through '+entry.standingThrough),'survival-tag');tag.setAttribute('data-no-translate','');card.append(tag);}if(building.periodNote)card.append(make('p',building.periodNote,'gap'));if(building.chinatown)card.append(make('p',building.chinatown.basis,'small'));
+ if(building.referenceGeometry)card.append(make('p','This is a later reference shape. The building’s presence is supported by dated records; its precise appearance in the selected year is inferred.','gap'));
+ if(building.boxyModel){const n=make('p',zh?'历史地图轮廓已简化为盒状体量；保留原始描图与年代记录。':'Historical map outlines are simplified into box masses; original tracings and date records are retained.','small');n.setAttribute('data-no-translate','');card.append(n);}else if(building.geometryDisplayAdjusted){const n=make('p',zh?'轮廓已进行显示冲突修正；原始测绘记录保留，修正边界不是新测量结果。':'Footprint adjusted to resolve model conflicts. Original records are retained; the adjusted edge is not a new survey.','gap');n.setAttribute('data-no-translate','');card.append(n);}
+ card.append(make('p',building.geometry_basis,'small'));
+ if(building.inventory){const inv=building.inventory;card.append(make('p','Inventory construction year: '+(inv.built||'Unknown')+' · demolition year: '+(inv.demolished||'Not recorded'),'small'));if(inv.date_conflict)card.append(make('p',inv.date_conflict,'gap'));}
+ if(entry?.events?.length){const details=make('details'),heading=make('summary','Construction, changes and source records');details.append(heading);for(const event of entry.events){const block=make('p'),date=event.date||(event.from===event.to?String(event.from):event.from+'–'+event.to);block.append(make('strong',date+' · '+event.type+' · '),make('span',event.text),document.createTextNode(' '),link(event.url,'Source record ↗'));details.append(block);}card.append(details);}r.append(card);}
+ const primary=currentRecord(),picked=[primary,...state.nearby.map(x=>x.record)].filter((x,i,a)=>x&&a.findIndex(z=>z?.id===x.id)===i).slice(0,3);
+ for(const source of picked){const card=make('article',undefined,'reading-record');card.append(make('h3',source.title),make('p','Source date: '+source.date+' · '+source.place,'small'),make('p',source.summary||'Read the original record for details.'),citations([source.id]));const curated=window.CURATED_EVIDENCE.claims.filter(c=>c.sources.includes(source.id.replace(/^existing_/,''))&&!/prototype|moving figures|not georeferenced/i.test(c.text)).slice(0,2);curated.forEach(c=>card.append(make('p',c.text)));r.append(card);}
+ const exact=state.nearby.filter(x=>x.temporal.match).length;if(!exact)g.append(make('p','No photograph is dated to this exact year. Nearby dates are labelled on each image.','gap'));g.append(make('p','The selected map survey is combined with dated construction, use and demolition records. Historical map coverage is partial. Source dates and uncertainty remain in each building record.'));const timing=Chronology.summary(data,timeline,state.context.year,state.context.district);timing.buildings.filter(b=>b.entityId===Chronology.entity(building||{},timeline)?.id).forEach(b=>{const p=make('p',b.name+': '+b.label,'small');p.append(citations([...new Set(b.sourceIds)]));g.append(p);});if(state.context.district==='new'&&state.context.year<1963)g.append(make('p','The Cass / Peterboro relocation began in 1963. An earlier view of this area must not be labeled as an already established relocated Chinatown.','gap'));
+ const params={page:'archive',place:state.context.district,year:state.context.year,lat:state.context.point[1],lon:state.context.point[0],radius:state.context.radius};$('context-archive').href=url(params);$('archive-context-note').textContent='Open source-date matches for this point and '+state.context.radius+' m radius; the archive page also lets you broaden the dates.';
+ }
+ function updateSelection(point,preferred,flight=true){if(state.busy||state.renderBusy)return;if(!$('year').reportValidity())return;let c;try{c=Spatial.context({point,radius:Number($('radius').value),year:Number($('year').value),question:state.questionDraft},data);}catch(e){$('generation-message').textContent='Choose a point within either study area or its mapped surroundings.';return;}state.context=c;state.revision++;askRevision++;state.answer=null;resetGeneration(flight?'street':state.viewMode==='context'?'context':'street');state.nearby=Spatial.nearby(state.records,c);const primary=preferred&&state.nearby.find(x=>x.record.id===preferred)||state.nearby.find(x=>x.record.generation_eligible)||state.nearby[0];state.primary=primary?.record.id||null;state.references=state.nearby.filter(x=>x.record.id!==state.primary).sort((a,b)=>a.uncertainty-b.uncertainty||a.distance-b.distance).slice(0,3).map(x=>x.record.id);$('area').value=c.district;$('mobile-place-details').disabled=false;$('selection-title').textContent=contextTitle();$('selection-detail').textContent=state.nearby.length+' photos · '+c.radius+' m · ±5 years';$('question-message').textContent='';renderSources();readStreet();timeStatus();const rev=state.revision;viewer().then(v=>{if(rev===state.revision)v.select(c,{flight});}).catch(e=>$('view-mode').textContent=e.message);controls();}
+ function drawMarkers(){$('location-coverage').textContent='Photos: selected year ±5 years';viewer().then(v=>v.markers(state.records)).catch(()=>{});}
+ window.addEventListener('atlas-landmark',e=>{const lm=e.detail.landmark;updateSelection(lm.point,null,false);const card=make('article',undefined,'reading-record');card.setAttribute('data-no-translate','');const zh=AtlasI18n.language()==='zh';card.append(make('h3',zh?lm.name_zh:lm.name),make('p',zh?'当代定位标记 · 不代表所选历史年份已经存在':'Present-day orientation landmark · not evidence of existence in the selected year'),make('p',zh?lm.note_zh:lm.note),link(lm.source_url,zh?'市政府史料 ↗':'City source ↗'));$('source-readings').prepend(card);$('selection-title').textContent=zh?lm.name_zh:lm.name;});
+ window.addEventListener('atlas-point',e=>{const oldMode=state.viewMode;updateSelection(e.detail.point,e.detail.sourceId,e.detail.flight!==false);if(e.detail.flight===false)setTab(oldMode==='context'?'context':'street',false);});window.addEventListener('atlas-outside',()=>{$('generation-message').textContent='Choose a point within either study area or its mapped surroundings.';});
+ window.addEventListener('atlas-area',e=>{const a=data.areas.find(x=>x.id===e.detail.district);if(!a||state.busy||state.renderBusy)return;$('area').value=a.id;updateSelection(a.center,null,false);setTab('context',false);viewer().then(v=>v.overview(a.id));});
+ function showOverview(){if(state.busy||state.renderBusy)return;setTab('context',false);$('area').value='';viewer().then(v=>v.overview(null));timeStatus();};
+
+ function changeYear(value){if(state.busy||state.renderBusy)return;$('year').value=value;$('atlas-travel-year').value=value;if(!$('year').validity.valid)return;const oldMode=state.viewMode;if(state.context){updateSelection(state.context.point,state.primary,false);setTab(oldMode==='context'?'context':'street',false);}else viewer().then(v=>v.setYear(Number(value)));timeStatus();}
+ window.addEventListener('atlas-regional-closed',()=>changeYear(Number($('year').value)));
+ MobileAtlas.install({changeYear});
+ // Address travel uses the local evidence/address index and never guesses an unmatched location.
+ const searchInput=$('atlas-address'),searchYear=$('atlas-travel-year'),searchResults=$('atlas-address-results'),travelStatus=$('atlas-travel-status');
+ const addressIndex=AddressJourney.index(data,window.CURATED_ARCHIVE.records,window.ARCHIVE_HOVER_DATA,timeline);
+ let selectedAddress=null,travelRevision=0,travelActive=false,activeResult=-1,shownResults=[];
+ function stopTravel(){travelRevision++;if(travelActive){viewer().then(v=>v.cancelTimeFlight());timeStatus();}travelActive=false;$('atlas-travel-stop').hidden=true;$('atlas-travel-go').disabled=false;}
+ function results(){selectedAddress=null;activeResult=-1;shownResults=AddressJourney.search(addressIndex,searchInput.value);searchResults.replaceChildren();for(const [i,item] of shownResults.entries()){const btn=make('button',item.name);btn.type='button';btn.setAttribute('role','option');btn.id='atlas-address-result-'+i;btn.onclick=()=>{selectedAddress=item;searchInput.value=item.name;searchResults.hidden=true;searchInput.setAttribute('aria-expanded','false');searchInput.removeAttribute('aria-activedescendant');searchInput.focus();};searchResults.append(btn);}searchResults.hidden=!shownResults.length;searchInput.setAttribute('aria-expanded',String(shownResults.length>0));}
+ searchInput.addEventListener('input',results);searchInput.addEventListener('keydown',e=>{if(e.key==='Escape'){searchResults.hidden=true;searchInput.setAttribute('aria-expanded','false');stopTravel();return;}if(['ArrowDown','ArrowUp'].includes(e.key)&&shownResults.length){e.preventDefault();activeResult=(activeResult+(e.key==='ArrowDown'?1:-1)+shownResults.length)%shownResults.length;Array.from(searchResults.children).forEach((b,i)=>b.setAttribute('aria-selected',String(i===activeResult)));searchInput.setAttribute('aria-activedescendant','atlas-address-result-'+activeResult);}if(e.key==='Enter'&&activeResult>=0&&!searchResults.hidden){e.preventDefault();searchResults.children[activeResult].click();}});
+ document.addEventListener('pointerdown',e=>{if(!$('atlas-travel-form').contains(e.target)){searchResults.hidden=true;searchInput.setAttribute('aria-expanded','false');}});
+ $('atlas-travel-stop').onclick=()=>{stopTravel();travelStatus.textContent=AtlasI18n.language()==='zh'?'已停止，保留当前地点与年份。':'Stopped at the current location and year.';};
+ for(const id of ['time-slider','year','tab-regional','tab-street','tab-model','tab-context'])$(id).addEventListener('pointerdown',()=>{if(travelActive)stopTravel();});
+ $('atlas-travel-form').onsubmit=async e=>{
+  e.preventDefault();if(state.busy||state.renderBusy){travelStatus.textContent='Wait for the current model operation to finish.';return;}
+  const parsed=AddressJourney.parse(searchInput.value,searchYear.value);if(!parsed.ok){travelStatus.textContent=parsed.error;return;}
+  const matches=selectedAddress?[selectedAddress]:AddressJourney.search(addressIndex,parsed.address);
+  if(!matches.length){travelStatus.textContent=AtlasI18n.language()==='zh'?'未找到已定位的地址。请使用下拉结果中的门牌或建筑名。':'No mapped address found. Choose an indexed address or building name.';return;}
+  const chosen=matches[0];if(!selectedAddress&&matches.length>1&&matches[0].score===matches[1].score){results();travelStatus.textContent='Choose a location from the matching addresses.';return;}
+  stopTravel();const rev=travelRevision;searchResults.hidden=true;searchInput.setAttribute('aria-expanded','false');searchYear.value=parsed.year;searchInput.value=chosen.name;selectedAddress=chosen;
+  const v=await viewer();if(rev!==travelRevision)return;
+  if(MobileAtlas.compact()){if(!$('regional-panel').hidden)$('regional-close').click();$('year').value=parsed.year;updateSelection(chosen.point,null,false);setTab('context',false);await Promise.resolve();v.inspectAt(chosen.point);$('mobile-place-details').disabled=false;travelStatus.textContent=chosen.name+' · '+parsed.year+(AtlasI18n.language()==='zh'?' · 已到达':' · Arrived');$('scene').dataset.travelDestination=chosen.point.join(',');$('scene').dataset.travelState='arrived';searchInput.blur();MobileAtlas.syncYear();MobileAtlas.close();return;}
+  if(!$('regional-panel').hidden)$('regional-close').click();setTab('context',false);state.context=null;v.clearModel();travelActive=true;$('atlas-travel-stop').hidden=false;$('atlas-travel-go').disabled=true;
+  const start=Number($('year').value);travelStatus.textContent=chosen.name+' · '+start+' → '+parsed.year;
+  try{const completed=await v.timeFlight(chosen.point,parsed.year,y=>{if(rev!==travelRevision)return;$('year').value=y;$('time-slider').value=y;$('year-display').textContent=y;travelStatus.textContent=chosen.name+' · '+y+' → '+parsed.year;$('scene').dataset.travelYear=String(y);});
+   if(rev!==travelRevision)return;travelActive=false;$('atlas-travel-stop').hidden=true;$('atlas-travel-go').disabled=false;timeStatus();
+   if(completed){updateSelection(chosen.point,null,false);setTab('context',false);travelStatus.textContent=chosen.name+' · '+parsed.year+(AtlasI18n.language()==='zh'?' · 已到达':' · Arrived');$('scene').dataset.travelDestination=chosen.point.join(',');}else travelStatus.textContent='Travel stopped.';
+  }catch(err){if(rev===travelRevision){stopTravel();travelStatus.textContent='Could not finish the map animation. '+err.message;}}
+ };
+
+ let yearTimer=null;$('year').onchange=()=>{clearTimeout(yearTimer);changeYear(Number($('year').value));};
+ const slider=$('time-slider'),track=slider.closest('.timeline-track');
+ let dragPointer=null,snappedYear=null,dragYear=Number(slider.value),dragTimer=null;
+ function previewYear(result){
+  dragYear=result.year;snappedYear=result.snapped;slider.value=dragYear;$('year-display').textContent=dragYear;
+  if(snappedYear===null)delete track.dataset.snappedYear;else track.dataset.snappedYear=snappedYear;
+  const row=snapRows.find(r=>r.year===dragYear),zh=AtlasI18n.language()==='zh';
+  slider.setAttribute('aria-valuetext',dragYear+(row?' · '+(zh?row.zh:row.title):''));
+  document.querySelectorAll('#year-ticks button').forEach(b=>b.classList.toggle('active',Number(b.dataset.year)===dragYear));
+ }
+ function commitDrag(){clearTimeout(dragTimer);dragTimer=null;changeYear(dragYear);}
+ function moveTimeline(e){
+  const rect=slider.getBoundingClientRect(),width=Math.max(1,rect.width-24);
+  const raw=1900+(e.clientX-rect.left-12)/width*126;
+  previewYear(TimelineSnap.drag(raw,snapRows,width,1900,2026,snappedYear));
+  if(!MobileAtlas.compact()&&dragTimer===null)dragTimer=setTimeout(commitDrag,120);
+ }
+ track.addEventListener('pointerdown',e=>{
+  if(slider.disabled||dragPointer!==null||e.isPrimary===false||(e.pointerType==='mouse'&&e.button!==0))return;
+  e.preventDefault();clearTimeout(yearTimer);dragPointer=e.pointerId;snappedYear=null;
+  slider.focus({preventScroll:true});track.setPointerCapture(e.pointerId);moveTimeline(e);
+ },{capture:true});
+ track.addEventListener('pointermove',e=>{if(e.pointerId===dragPointer){e.preventDefault();moveTimeline(e);}});
+ function finishTimeline(e){
+  if(e.pointerId!==dragPointer)return;
+  if(e.type==='pointerup')moveTimeline(e);
+  const id=dragPointer;dragPointer=null;commitDrag();
+  if(track.hasPointerCapture(id))track.releasePointerCapture(id);
+ }
+ for(const type of ['pointerup','pointercancel','lostpointercapture'])track.addEventListener(type,finishTimeline);
+ // Suppress a synthetic mouse click on the starting milestone after a drag.
+ // Keyboard activation of milestone buttons remains available.
+ track.addEventListener('click',e=>{if(e.detail>0){e.preventDefault();e.stopPropagation();}},{capture:true});
+ slider.oninput=()=>{clearTimeout(yearTimer);previewYear({year:Number(slider.value),snapped:null});if(!MobileAtlas.compact())yearTimer=setTimeout(()=>changeYear(Number(slider.value)),120);};
+ slider.onchange=()=>{clearTimeout(yearTimer);changeYear(Number(slider.value));};
+
+ $('question').oninput=()=>{if(state.inputMode==='history'){state.questionDraft=$('question').value;askRevision++;}else state.renderDraft=$('question').value;};
+ $('question-form').onsubmit=async e=>{
+  e.preventDefault();
+  if(state.historyPending||state.busy||state.renderBusy||!state.context||!$('question').reportValidity())return;
+  if(state.inputMode==='render'){state.renderDraft=$('question').value.trim();await generatePhoto();return;}
+  clearTimeout(yearTimer);
+  if(!$('year').reportValidity())return;
+  const parsed=HistoryQuery.resolve($('question').value,Number($('year').value));
+  if(!parsed.ok){$('question-message').textContent=HistoryQuery.message(parsed.code,window.AtlasI18n?.language());return;}
+  const question=parsed.question;state.questionDraft=question;
+  if(parsed.year!==state.context.year)changeYear(parsed.year);
+  state.context.question=question;
+  const rev=++askRevision,context=JSON.parse(JSON.stringify(state.context)),language=window.AtlasI18n?.language()||'en';
+  const current=()=>rev===askRevision&&Spatial.same(context,state.context)&&language===(window.AtlasI18n?.language()||'en')&&state.inputMode==='history'&&question===$('question').value.trim();
+  state.historyPending=true;state.answer=null;readStreet();controls();
+  $('question-message').textContent='Reading the evidence for this place and year…';
+  try{
+   const result=await call('askAtLocation',{context,question,language});
+   if(!current()||!Spatial.same(result.context,state.context))return;
+   state.answer=Object.assign({},result,{question,language});readStreet();
+   $('question-message').textContent='Your source-linked interpretation is ready below.';
+  }catch(error){if(current())$('question-message').textContent=error.message;}
+  finally{
+   state.historyPending=false;
+   if(!current()&&$('question-message').textContent===AtlasI18n.translate('Reading the evidence for this place and year…'))$('question-message').textContent='Your selection or question changed. Submit again to read the current selection.';
+   controls();
+  }
+ };
+ let cropImage=null,crop=null,origin=null,cropEpoch=0;const canvas=$('crop-canvas'),cx=canvas.getContext('2d');
+ function drawCrop(){if(!cropImage)return;cx.drawImage(cropImage,0,0,canvas.width,canvas.height);if(crop){cx.strokeStyle='#d26b38';cx.lineWidth=3;cx.strokeRect(crop.x,crop.y,crop.w,crop.h);}}
+ function pos(e){const r=canvas.getBoundingClientRect();return {x:Math.max(0,Math.min(canvas.width,(e.clientX-r.left)*canvas.width/r.width)),y:Math.max(0,Math.min(canvas.height,(e.clientY-r.top)*canvas.height/r.height))};}
+ canvas.onpointerdown=e=>{origin=pos(e);canvas.setPointerCapture(e.pointerId);};canvas.onpointermove=e=>{if(!origin)return;const p=pos(e);crop={x:Math.min(p.x,origin.x),y:Math.min(p.y,origin.y),w:Math.abs(p.x-origin.x),h:Math.abs(p.y-origin.y)};drawCrop();};canvas.onpointerup=()=>{origin=null;if(crop&&(crop.w<30||crop.h<30))crop=null;modelRequest=null;drawCrop();};canvas.onpointercancel=()=>{origin=null;};$('reset-crop').onclick=()=>{crop=null;modelRequest=null;drawCrop();};
+ $('close-crop').onclick=()=>{$('crop-panel').hidden=true;cropEpoch++;};
+ $('prepare-model').onclick=async()=>{if(!state.primary)return;const id=state.primary,rev=state.revision,attempt=++cropEpoch;cropImage=null;crop=null;modelRequest=null;canvas.hidden=true;$('crop-message').textContent='Loading the archival photograph…';$('crop-source-line').textContent=recordLabel(currentRecord());$('crop-panel').hidden=false;controls();try{const r=await call('getArchiveImage',id),im=new Image();await new Promise((a,b)=>{im.onload=a;im.onerror=()=>b(new Error('The photograph could not be displayed.'));im.src='data:'+r.mime+';base64,'+r.data;});if(rev!==state.revision||attempt!==cropEpoch)return;cropImage=im;const s=Math.min(1100/im.width,750/im.height,1);canvas.width=Math.round(im.width*s);canvas.height=Math.round(im.height*s);canvas.hidden=false;drawCrop();$('crop-message').textContent='Choose one building. Generating submits one request from the shared daily allowance.';}catch(e){$('crop-message').textContent=e.message;}controls();};
+ function cropped(){const r=crop||{x:0,y:0,w:canvas.width,h:canvas.height},out=document.createElement('canvas');out.width=Math.round(r.w);out.height=Math.round(r.h);out.getContext('2d').drawImage(cropImage,r.x*cropImage.width/canvas.width,r.y*cropImage.height/canvas.height,r.w*cropImage.width/canvas.width,r.h*cropImage.height/canvas.height,0,0,out.width,out.height);return out.toDataURL('image/jpeg',.88);}
+ async function showModel(job,rev){const token=job.token,r=await call('getModelBytes',token);if(rev!==state.revision||token!==state.token)return;const source=state.records.find(x=>x.id===r.sourceId);if(!source?.spatial)throw new Error('This saved model needs an evidence-backed map location before it can join the spatial study.');const bytes=Uint8Array.from(atob(r.data),x=>x.charCodeAt(0));if(state.modelUrl)URL.revokeObjectURL(state.modelUrl);state.modelUrl=URL.createObjectURL(new Blob([bytes],{type:'model/gltf-binary'}));$('download-model').href=state.modelUrl;$('saved-model').href=url({job:token});state.job=r;const loaded=await (await viewer()).load(bytes.buffer,source);if(!loaded||rev!==state.revision)return;state.modelLoaded=true;state.busy=false;$('model-adjust').hidden=false;await setTab('model',false);invalidate();$('generation-message').textContent='Model fitted to the selected building footprint. Adjust the alignment offset if its front faces the wrong way, then confirm the camera. Placement and scale remain approximate.';controls();if(r.renderReady)displayRender(await call('getRenderedImage',token));}
+ async function poll(token,rev,attempt=0){try{const r=await call('pollModel',token);if(rev!==state.revision||token!==state.token)return;state.job=r;$('generation-message').textContent='Building the detailed model · '+r.progress+'%';if(r.modelReady){await showModel(r,rev);return;}if(['FAILED','CANCELED','SUBMISSION_UNCERTAIN'].includes(r.status)){state.busy=false;$('generation-message').textContent=r.error||'The model request could not be confirmed. Open the saved study before retrying.';controls();return;}setTimeout(()=>poll(token,rev),10000);}catch(e){if(rev===state.revision){if(['BUSY','POLL_FAILED'].includes(e.code)&&attempt<4){$('generation-message').textContent='The saved task is busy. Checking its status again shortly…';setTimeout(()=>poll(token,rev,attempt+1),10000);return;}state.busy=false;$('generation-message').textContent=e.message;controls();}}}
+ $('start-model').onclick=async()=>{if(!cropImage||state.busy)return;state.busy=true;controls();$('crop-panel').hidden=true;$('generation-message').textContent='Submitting one detailed model request…';const rev=state.revision;try{modelRequest=modelRequest||crypto.randomUUID();const r=await call('startModel',{sourceId:state.primary,image:cropped(),context:state.context,requestId:modelRequest});state.token=r.token;state.job=r;$('saved-model').href=url({job:r.token});$('model-adjust').hidden=false;await availability();poll(r.token,rev);}catch(e){state.busy=false;$('generation-message').textContent=e.message;await availability();}controls();};
+ $('confirm-view').onclick=async()=>{try{state.confirmed=await (await viewer()).capture();inputMode('render');$('generation-message').textContent='View confirmed. Add your direction below, then generate the speculative photo.';controls();}catch(e){$('generation-message').textContent=e.message;}};
+ function displayRender(r){const src='data:'+r.mime+';base64,'+r.data;$('rendered-result').src=src;$('download-render').href=src;$('download-render').hidden=false;state.job.renderReady=true;state.job.renderStatus='SUCCEEDED';state.renderEvidence=r;if(r.token){state.token=r.token;state.job.token=r.token;$('saved-model').href=url({job:r.token});}
+ $('provenance-section').hidden=false;const root=$('render-provenance');root.replaceChildren(make('p','Target year: '+r.sceneYear+'. The confirmed 3D view was supplied as a composition reference, with archival photographs for visible detail.'));
+ root.append(make('p','Compare the generated image with the camera reference: generation may change geometry or framing. It is not a measured reconstruction.'));root.append(make('h3','Your contribution'),make('p',r.userPrompt||'No separate creative direction was saved with this earlier study.'));
+ root.append(make('h3','Photographic evidence'));for(const ref of r.references||[]){const p=make('p');p.append(link(ref.url,ref.title+' · '+ref.date));if(ref.relationship)p.append(make('small',' — '+ref.relationship));root.append(p);}
+ if(r.textEvidence?.length){root.append(make('h3','Written sources'));for(const t of r.textEvidence){const p=make('p');p.append(link(t.url||state.records.find(x=>x.id===t.id)?.source_url,t.title+' · '+t.date));root.append(p);}}
+ root.append(make('h3','Inference and critical fabulation'),make('p','Unmeasured depth, concealed surfaces, material colours, atmosphere and any invented figures remain conjectural. The input record explains how the image was requested; it does not verify every generated detail.'));
+ if(r.temporalEvidence){root.append(make('p','Timeline: '+r.temporalEvidence.year+' · '+r.temporalEvidence.demolished+' documented removals · '+r.temporalEvidence.unresolved+' unresolved building states.'));}
+ if(r.userPrompt){state.renderDraft=r.userPrompt;if(state.inputMode==='render')$('question').value=r.userPrompt;}
+ if(r.viewImage)$('capture-preview').src='data:'+r.viewImage.mime+';base64,'+r.viewImage.data;$('capture-preview').hidden=!r.viewImage&&!state.confirmed;
+ $('generation-message').textContent='Speculative photograph saved. Its sources and your contribution are recorded below.';setTab('photo',false);readStreet();}
+ async function checkRender(){const r=await call('getRenderStatus',state.token);state.job=r;if(r.renderReady)displayRender(await call('getRenderedImage',state.token));else $('generation-message').textContent=r.renderError||'The result is not confirmed yet. No automatic paid retry has been made.';controls();}
+ $('check-render').onclick=()=>checkRender().catch(e=>$('generation-message').textContent=e.message);
+ async function generatePhoto(){if(!state.confirmed||state.renderBusy)return;state.renderBusy=true;controls();referenceChoices();$('generation-message').textContent='Generating the confirmed view from the selected photographs and archival context…';try{renderRequest=renderRequest||crypto.randomUUID();const r=await call('renderModel',{token:state.token,image:state.confirmed,referenceIds:state.references,sceneYear:state.context.year,context:state.context,requestId:renderRequest,retryConfirmed:!!state.job.renderRetryable,newRender:!!state.job.renderReady,userPrompt:state.renderDraft});displayRender(r);renderRequest=null;}catch(e){if(e.token){state.token=e.token;state.job.renderReady=false;$('saved-model').href=url({job:e.token});}$('generation-message').textContent=e.message;if(e.renderStatus==='NOT_STARTED'){state.job.renderStatus='NOT_STARTED';renderRequest=null;}else{try{await checkRender();if(['FAILED','LEGACY_FAILED','NOT_STARTED'].includes(state.job.renderStatus)){renderRequest=null;if(state.job.renderStatus==='NOT_STARTED')$('generation-message').textContent=e.message;}}catch(_){state.job.renderStatus='UNCERTAIN';$('generation-message').textContent='The result could not be confirmed. Check generation status before submitting another request.';}}}finally{state.renderBusy=false;await availability();referenceChoices();controls();}}
+ async function restore(token){try{const r=await call('getRenderStatus',token),source=state.records.find(x=>x.id===r.sourceId);if(!source?.spatial){$('generation-message').textContent='The saved source needs a map location before it can be restored here.';return;}const c=r.context||{point:source.spatial.point,radius:500,year:Number((r.sourceDate||'').match(/(?:18|19|20)\d{2}/)?.[0]||1950)};if(c.year<1900||c.year>2026){$('generation-message').textContent='The map covers 1900–2026. Browse the archive for earlier material.';return;}$('year').value=c.year;$('radius').value=c.radius;updateSelection(c.point,r.sourceId);state.token=token;state.job=r;state.busy=true;controls();if(r.modelReady)await showModel(r,state.revision);else poll(token,state.revision);}catch(e){$('generation-message').textContent=e.message;}}
+ installStreetComposer102({
+  mode:()=>state.viewMode,year:()=>Number($('year').value),context:()=>state.context?JSON.parse(JSON.stringify(state.context)):null,
+  lock:value=>{state.renderBusy=value;controls();$('atlas-travel-go').disabled=value;$('atlas-travel-year').disabled=value;$('atlas-address').disabled=value;},
+  snapshot:async()=>{if(state.viewMode!=='street')throw new Error('Enter street view before generating.');return (await viewer()).streetFrame102();},
+  prepare:async(year,frame,context)=>{
+   const locked=state.renderBusy;state.renderBusy=false;$('year').value=year;$('atlas-travel-year').value=year;$('radius').value=context.radius;
+   updateSelection(context.point,null,false);state.renderBusy=locked;const v=await viewer();await new Promise(resolve=>requestAnimationFrame(resolve));await setTab('street',false);v.restoreStreet102(frame);timeStatus();controls();
+  },
+  capture:async()=>{const v=await viewer();return {camera:v.streetFrame102(),image:await v.capture(),visibleBuildings:v.visibleBuildings103()};},
+  show:async url=>{$('rendered-result').src=url;await setTab('photo',false);(await viewer()).photo102(true);},
+  return:async(frame)=>{const v=await viewer();v.photo102(false);await setTab('street',false);if(frame)v.restoreStreet102(frame);},
+  markers:async(rows,enabled)=>(await viewer()).reconstructionMarkers102(rows,enabled)
+ });
+ availability();timeStatus();
+ async function initialSelection(){
+  if(cfg.streetJob)return;
+  if(cfg.job){await restore(cfg.job);return;}
+  if(state.context)return;
+  const initialYear=Math.max(1900,Math.min(2026,cfg.selection?.year||cfg.year||Number($('year').value)));
+  $('year').value=String(initialYear);$('atlas-travel-year').value=String(initialYear);
+  $('time-slider').value=String(initialYear);$('year-display').textContent=String(initialYear);
+  setTab('context',false);
+  if(cfg.selection){$('radius').value=cfg.selection.radius;updateSelection(cfg.selection.point,null,false);}
+  else if(cfg.place){const area=data.areas.find(x=>x.id===cfg.place);if(area)updateSelection(area.center,null,false);}
+  timeStatus();
+  const v=await viewer();
+  if(!state.context)v.setYear(initialYear);
+  // Links may identify an area or point, but loading a link never enters
+  // first-person mode. Street view requires the visitor's explicit action.
+  v.overview(state.context?.district||null,0);
+ }
+ initialSelection();call('getArchiveIndex').then(out=>{if(!Array.isArray(out?.records))return;state.records=out.records;archiveTicks();drawMarkers();if(state.context){state.nearby=Spatial.nearby(state.records,state.context);const primary=state.nearby.find(x=>x.record.id===state.primary)||state.nearby.find(x=>x.record.generation_eligible)||state.nearby[0];state.primary=primary?.record.id||null;state.references=state.nearby.filter(x=>x.record.id!==state.primary).sort((a,b)=>a.uncertainty-b.uncertainty||a.distance-b.distance).slice(0,3).map(x=>x.record.id);$('selection-detail').textContent=state.nearby.length+' photos · '+state.context.radius+' m · ±5 years';renderSources();readStreet();timeStatus();controls();}}).catch(()=>{$('location-coverage').textContent+=' · showing curated sources';});
+})().catch(()=>{});
+
+/* Pure temporal and measurement rules. Never infer missing ethnic categories. */
+var ActivityRules=(()=>{
+ const colors=['#fff7ec','#fee8c8','#fdd49e','#fdbb84','#fc8d59','#e34a33','#a50f15'];
+ const breaks=[0,.01,.1,1,10,100,1000];
+ function number(v){return v!==null&&v!==''&&Number.isFinite(Number(v))&&Number(v)>=0?Number(v):null;}
+ function sum(rows){if(!rows.length||rows.some(v=>number(v)===null))return null;return rows.reduce((a,b)=>a+Number(b),0);}
+ function moe(rows){const v=sum(rows.map(x=>number(x)===null?null:x*x));return v===null?null:Math.sqrt(v);}
+ function population(row,level,period){const keys=period?period.groups?.[level]:(level==='asian'?['asian']:level==='east'?['chinese','taiwanese','japanese','korean']:['chinese','taiwanese']);if(!keys)return {estimate:null,moe:null};return {estimate:sum(keys.map(k=>row[k]?.[0]??null)),moe:keys.length===1?number(row[keys[0]]?.[1]):moe(keys.map(k=>row[k]?.[1]??null))};}
+ function period(periods,year){return periods.find(p=>year>=p.start&&year<=p.end)||null;}
+ function bin(year){const a=Math.max(1900,Math.floor(year/5)*5);return [a,Math.min(a+4,2026)];}
+ function candidates(periods,year,level){const eligible=periods.filter(p=>!level||p.groups?.[level]);const direct=eligible.filter(p=>p.start<=year&&p.end>=year).sort((x,y)=>(y.kind==='acs')-(x.kind==='acs')||y.end-x.end);if(direct.length)return direct;return eligible.filter(p=>p.end<year).sort((x,y)=>y.end-x.end||(y.kind==='acs')-(x.kind==='acs')).slice(0,1);}
+ function activitySnapshot(rows,a,b,level,kind){const direct=inWindow(rows,a,b,level,kind);if(direct.length)return {rows:direct,from:a,to:b,carried:false};const dates=rows.filter(r=>r.levels.includes(level)&&(kind==='all'||r.kind===kind)).flatMap(r=>r.intervals.map(x=>Math.min(x[1],a-1))).filter(y=>y<a&&y>=1900).sort((x,y)=>y-x);for(const y of dates){const valid=inWindow(rows,y,y,level,kind);if(valid.length)return {rows:valid,from:y,to:y,carried:true};}return {rows:[],from:a,to:b,carried:false};}
+ function totals(period,level){if(!period)return {total:null,counties:[]};const counties=(period.countyFeatures||period.features).map(f=>({county:f.properties.county,value:population(f.properties,level,period).estimate}));return {total:sum(counties.map(x=>x.value)),counties};}
+ function inWindow(rows,a,b,level,kind){const seen=new Set();return rows.filter(r=>{if(seen.has(r.id)||!r.levels.includes(level)||(kind!=='all'&&r.kind!==kind))return false;const ok=r.intervals.some(([x,y])=>x<=b&&y>=a);if(ok)seen.add(r.id);return ok;});}
+ function venues(rows,year,windowYears,level,kind){return inWindow(rows,year-windowYears+1,year,level,kind);}
+ function color(density){if(density===null||!Number.isFinite(density))return '#a8aca9';let i=0;while(i<breaks.length-1&&density>=breaks[i+1])i++;return colors[i];}
+ function kernel(distanceKm){return distanceKm<=4?Math.exp(-distanceKm*distanceKm/2)/(2*Math.PI):0;}
+ function heatAlpha(value){return Math.round(220*(1-Math.exp(-Math.max(0,value)/.20)));}
+ function heatColor(value){const stops=[[252,222,233],[248,152,186],[231,72,136],[190,28,99]],a=Math.min(1,Math.max(0,value/.5))*3,i=Math.min(2,Math.floor(a)),f=a-i;return stops[i].map((v,k)=>Math.round(v+(stops[i+1][k]-v)*f));}
+ return {number,sum,moe,population,period,bin,candidates,activitySnapshot,totals,inWindow,venues,color,kernel,heatColor,heatAlpha,colors,breaks};
+})();
+if(typeof module!=='undefined')module.exports=ActivityRules;
+
+window.RegionalMap=(()=>{'use strict';
+ const $=id=>document.getElementById(id),R=ActivityRules;let D=null;
+ let viewer,selectedPeriod=null,visible=false,loading=null,selectedDataId="",playTimer=null;
+ const t=(en,zh)=>window.AtlasI18n?.language()==='zh'?zh:en;
+ const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
+ const fmt=n=>n===null?t('Unavailable','缺失'):Math.round(n).toLocaleString();
+ function link(url,title){const a=el('a',title);a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a;}
+ function level(){return $('regional-level').value;}
+ function currentYear(){return Number($('year').value);}
+ function detail(title,lines,sources,storyState=null){selectedStory76=storyState;const p=$('regional-detail');p.hidden=false;p.replaceChildren();const b=el('button','×');b.type='button';b.setAttribute('aria-label',t('Close place details','关闭详情'));b.onclick=()=>p.hidden=true;p.append(b,el('h3',title));lines.forEach(v=>p.append(el('p',v)));sources.forEach(s=>p.append(link(s.url,s.title+' ↗'),el('br')));}
+ function inspectTract(f){const p=f.properties,v=R.population(p,level(),selectedPeriod),density=v.estimate===null||!p.landKm2?null:v.estimate/p.landKm2;detail(p.name,[selectedPeriod.label+' · '+p.county,t('Residents: ','居民：')+fmt(v.estimate)+(selectedPeriod.kind==='acs'?' ± '+fmt(v.moe)+t(' (90% MOE)','（90% 误差范围）'):t(' (census count; sampling MOE not applicable)','（普查计数，无抽样误差项）')),t('Density: ','密度：')+(density===null?'—':density.toLocaleString(undefined,{maximumFractionDigits:4}))+t(' residents / land km²',' 人 / 陆地平方公里'),t(selectedPeriod.definition,selectedPeriod.definitionZh),p.areaReference?t('County totals divided by the same 2024 land area. Outlines are geographic references; this does not locate people within a county.','县总数使用同一 2024 年陆地面积计算密度。轮廓为地理参考，不能定位县内居民。'):t('Tract boundaries match this ACS release; boundary changes affect visual comparison.','小区边界对应该期 ACS；边界变化会影响视觉比较。'),selectedPeriod.kind==='acs'?t('Residence estimates, not visitors. Summed MOE is approximate; differences have not been tested for significance.','居住估计，不是访客。合计误差为近似值，跨期差异未经显著性检验。'):t('Historical classification and enumeration coverage limit comparison with modern surveys.','历史分类及统计覆盖限制了与现代调查的可比性。')],[{url:selectedPeriod.source,title:'U.S. Census Bureau · '+selectedPeriod.label}]);}
+ function inspectCity(r){detail(r.city+' · '+r.year,[t('Asian and Pacific Islander: ','Asian and Pacific Islander（含太平洋岛民）：')+fmt(r.asianPacificIslander),t('Whole-city reference total. Separate historical classification; do not add to county counts or read this marker as a neighborhood heat spot.','全市参考总数，使用独立历史分类。不可与县总数相加，不表示标记附近有这些人口。'),t('Historic city boundaries and ward distributions have not been reconstructed. The marker only identifies the city.','尚未复原该年的市界和区内分布，标记仅用于识别城市。')],[{url:r.source,title:'U.S. Census · historical Table '+r.table}]);}
+ function inspectVenue(r){detail(r.name,[r.address||t('Approximate public location','近似公共地点'),r.intervals.map(x=>x[0]===x[1]?String(x[0]):x.join('–')).join(', '),t(r.note,r.noteZh||r.note),t('Location precision: approximately ','位置精度：约 ')+r.uncertaintyM+' m',r.kind==='business'?t('Cuisine / public business evidence. Ownership and customer ethnicity are not inferred.','依据菜系或公开商业史料；不推断业主或顾客族裔。'):t('Documented public community venue. Attendance is not measured.','有公开记录的社群活动地点，未测量参与人数。')],r.sources);}
+ let activeRows=[],activityState=null;
+ function sourceLabel(p){return !p?'':p.label+(currentYear()>p.end?t(' · carried to ',' · 沿用至 ')+currentYear():'');}
+ function inspectCenter(c){detail(t(c.name,c.nameZh)+' · '+c.year,[t(c.note,c.noteZh),t('Location precision: about ','位置精度：约 ')+c.uncertaintyM+' m'],[{url:c.source,title:t('Source','来源')}]);}
+ function setYear(y){$('year').value=y;$('year').dispatchEvent(new Event('change'));render();}
+ function stop(){if(playTimer)clearInterval(playTimer);playTimer=null;$('regional-play').textContent=t('Play','播放');}
+ function coverage(){const host=$('regional-coverage');host.replaceChildren();const current=R.bin(currentYear())[0];for(let a=1900;a<=2025;a+=5){const b=Math.min(a+4,2026),hasPop=R.candidates(D.periods,a,level()).length>0,hasRef=D.cityReferences.some(r=>r.year>=a&&r.year<=b),n=R.inWindow(D.venues,a,b,level(),$('regional-kind').value).length;const btn=el('button',a+(n?' •':''),hasPop?'has-pop':hasRef?'has-reference':'');btn.type='button';btn.title=a+'–'+b+' · '+(hasPop?t('population','人口'):hasRef?t('city references only','仅城市参考'):t('no population data','人口缺失'))+' · '+n+t(' documented places','个地点');btn.setAttribute('aria-current',String(current===a));btn.onclick=()=>{stop();selectedDataId='';setYear(a);};host.append(btn);}}
+ function localizeControls(){for(const e of document.querySelectorAll('#regional-panel [data-en]'))e.textContent=t(e.dataset.en,e.dataset.zh);$('regional-play').textContent=playTimer?t('Pause','暂停'):t('Play','播放');$('heat-opacity').setAttribute('aria-label',t('Heatmap opacity','热力透明度'));$('regional-bin').setAttribute('aria-label',t('Five-year interval','五年区间'));$('regional-period').setAttribute('aria-label',t('Population dataset','人口数据集'));}
+ function render(){localizeControls();if(!visible||!viewer||!D)return;const y=currentYear(),[a,b]=R.bin(y),available=R.candidates(D.periods,y,level());if(!available.some(p=>p.id===selectedDataId))selectedDataId='';const p=available.find(x=>x.id===selectedDataId)||available[0]||null;selectedPeriod=p;
+ const selector=$('regional-period');selector.replaceChildren();selector.append(new Option(t('Auto · latest source','自动 · 最近资料'),''));available.forEach(q=>selector.append(new Option(q.label,q.id)));selector.value=selectedDataId;$('regional-bin').value=String(a);
+ $('regional-detail').hidden=true;
+ const pop=$('regional-pop').checked,act=$('regional-activity').checked,county=$('regional-resolution').value==='county',features=p?(county?p.countyFeatures:p.features):[];
+
+ const windowMode=$('regional-window').value,from=windowMode==='bin'?a:windowMode==='1'?y:Math.max(1900,y-9),to=windowMode==='bin'?b:y;
+ activityState=R.activitySnapshot(D.venues,from,to,level(),$('regional-kind').value);activeRows=act?activityState.rows:[];
+ const centers=$('regional-centers').checked?(D.communityCenters||[]).filter(c=>c.year<=y):[],links=$('regional-centers').checked?(D.centerLinks||[]).filter(c=>c.year<=y):[],populationCenters=pop&&$('regional-centers').checked&&p?.kind==='acs'?(D.populationCenters||[]).filter(c=>c.level===level()&&c.start<=p.start):[];
+ viewer.centers({centers,populationCenters,inspect:inspectCenter});
+ viewer.heat({key:[y,level(),p?.id,pop,act,county,windowMode,$('regional-kind').value,$('heat-opacity').value,$('regional-centers').checked].join('|'),centers,links,populationCenters,features:pop?features:[],period:p,level:level(),rows:activeRows,population:pop&&!!p,opacity:Number($('heat-opacity').value)/100});
+  const cr=$('regional-references').checked?D.cityReferences.filter(r=>r.year>=a&&r.year<=b):[],list=$('regional-reference-list');list.replaceChildren();
+ if(cr.length){list.append(el('span',t('Separate historical city totals · Asian + Pacific Islander:','独立历史城市总数 · Asian + Pacific Islander（含太平洋岛民）：')));for(const r of cr){const btn=el('button',r.city+' '+r.year+' · '+fmt(r.asianPacificIslander));btn.type='button';btn.onclick=()=>inspectCity(r);list.append(btn);}}
+ const populationStatus=!pop?t('Residence layer off','居民图层已关闭'):p?(sourceLabel(p)+' · '+(!p.groups[level()]?t('selected category unavailable','所选族群缺失'):(county||p.resolution==='county'?t('3 county totals','3 个县总数'):features.length+t(' tracts','个普查小区')))):t('Population data unavailable in this interval','此区间人口数据缺失');
+ $('regional-status').textContent=a+'–'+b+' · '+populationStatus+' · '+(act?`${activityState.from}–${activityState.to}${activityState.carried?t(' (carried)','（沿用）'):''} · ${activeRows.length} `+t('documented locations','处有记录的地点'):t('Activity layer off','活动图层已关闭'));
+ $('activity-controls').hidden=!act;$('regional-warning').textContent=t('Fixed scales. Gaps use the latest earlier source.','固定色阶；空档沿用最近的既有资料。');coverage();legend(pop,act,p,activityState.from,activityState.to,county);
+ }
+ function legend(pop,act,p,from,to,county){const host=$('heat-legend');host.hidden=!visible;host.replaceChildren();host.append(el('strong',t('Population & activity · ','人口与活动 · ')+currentYear()),el('p',$('regional-level').selectedOptions[0].textContent));
+  if(pop&&p){host.append(el('p',sourceLabel(p),currentYear()>p.end?'carried-data':''));const totals=R.totals(p,level());host.append(el('strong',fmt(totals.total)+t(' residents',' 位居民')),el('small',t(' · Wayne + Oakland + Macomb',' · Wayne + Oakland + Macomb')));const counts=el('div',undefined,'county-counts');for(const c of totals.counties)counts.append(el('span',c.county+' '+fmt(c.value)));host.append(counts,el('p',t('Residents / land km² · fixed scale','居民 / 陆地 km² · 固定色阶')));const bins=el('div',undefined,'legend-bins');R.colors.forEach(c=>{const n=el('i');n.style.background=c;bins.append(n);});host.append(bins);const ticks=el('div',undefined,'legend-ticks');['0','.01','.1','1','10','100','1,000+'].forEach(v=>ticks.append(el('span',v)));host.append(ticks,el('small',county||p.resolution==='county'?t('County averages; no neighborhood detail.','县级平均值，无法定位街区。'):t('Census tracts · hatched = missing','普查小区 · 斜线 = 缺失')));}
+  if(pop&&!p)host.append(el('p',t('No earlier population data for this group.','此族群尚无较早的人口资料。')));
+  if(act){host.append(el('p',from+(from===to?'':'–'+to)+(activityState.carried?t(' · carried activity',' · 沿用活动资料'):'')+' · '+activeRows.length+t(activeRows.length===1?' site':' sites',' 处地点')));const bar=el('div',undefined,'regional-scale activity-scale');host.append(bar,el('small',t('Pink: 0 → .5+ sites/km² · 1 km smoothing','粉色：0 → .5+ 处/km² · 1 km 平滑')));}
+  if($('regional-centers').checked){host.append(el('p',t('Center halos: schematic · → relocation · ⇢ expansion','中心晕染为示意 · → 迁址 · ⇢ 扩展')));if(pop&&p?.kind==='acs')host.append(el('small',t('◆ ACS population center · distribution shift, not migrant counts.','◆ ACS 人口重心 · 分布变化，不代表迁移人数。')));}
+  const fit=el('button',t('Show Detroit region','查看底特律区域'));fit.onclick=()=>viewer.region();host.append(el('p'),fit);
+ }
+ async function open(){
+   visible=true;$('show-regional').checked=true;$('regional-panel').hidden=false;
+   $('regional-status').textContent=t('Loading population and activity…','正在加载人口与活动资料…');
+   try{const results=await Promise.all([window.SpatialViewerReady,AtlasAssets.activity()]);viewer=results[0];D=results[1];window.ACTIVITY_DATA=D;if(visible)render();}
+   catch(_){if(visible)$('regional-status').textContent=t('The regional map could not load. Close and reopen it to retry.','区域地图未能加载，请关闭后重新打开。');}
+  }
+ function close(){stop();visible=false;$('show-regional').checked=false;$('regional-panel').hidden=true;$('heat-legend').hidden=true;$('regional-detail').hidden=true;viewer?.heat(null);viewer?.centers(null);}
+ function inspectPoint(point){if(!visible)return false;const venue=activeRows.map(r=>({r,d:Spatial.distance(point,[r.lon,r.lat])})).sort((a,b)=>a.d-b.d)[0];if(venue&&venue.d<150){inspectVenue(venue.r);return true;}if($('regional-pop').checked&&selectedPeriod){const fs=$('regional-resolution').value==='county'?selectedPeriod.countyFeatures:selectedPeriod.features;const f=fs.find(f=>(f.geometry.type==='MultiPolygon'?f.geometry.coordinates:[f.geometry.coordinates]).some(p=>Spatial.inside(point,p[0])&&!p.slice(1).some(r=>Spatial.inside(point,r))));if(f){inspectTract(f);return true;}}return false;}
+  $('show-regional').onchange=()=>$('show-regional').checked?open():close();$('tab-regional').onclick=open;$('regional-close').onclick=close;
+
+ for(const id of ['regional-pop','regional-activity','regional-level','regional-window','regional-kind','regional-resolution','regional-references','regional-centers'])$(id).onchange=render;
+ $('regional-fit').onclick=()=>viewer?.region();$('regional-local').onclick=()=>viewer?.overview('new');$('heat-opacity').oninput=()=>{$('heat-opacity-value').textContent=$('heat-opacity').value+'%';render();};
+ for(let a=1900;a<=2025;a+=5)$('regional-bin').append(new Option(a+'–'+Math.min(a+4,2026),String(a)));
+ $('regional-bin').onchange=()=>{stop();selectedDataId='';setYear(Number($('regional-bin').value));};
+ $('regional-period').onchange=()=>{selectedDataId=$('regional-period').value;render();};
+ $('regional-prev').onclick=()=>{stop();selectedDataId='';setYear(Math.max(1900,R.bin(currentYear())[0]-5));};
+ $('regional-next').onclick=()=>{stop();selectedDataId='';setYear(Math.min(2025,R.bin(currentYear())[0]+5));};
+ $('regional-play').onclick=()=>{if(playTimer){stop();return;}if(currentYear()>=2025)setYear(1900);$('regional-play').textContent=t('Pause','暂停');playTimer=setInterval(()=>{const next=R.bin(currentYear())[0]+5;if(next>2025){stop();return;}selectedDataId='';setYear(next);},1800);};
+ $('regional-now').onclick=()=>{stop();selectedDataId='';setYear(2026);};
+ window.addEventListener('atlas-language-changed',render);
+ let selectedStory76=null;
+ function showStory76(){if(!selectedStory76)return;const {place,active,year}=selectedStory76,zh=AtlasI18n.language()==='zh';detail((zh&&active.labelZh)||active.label||place.name,[String(year)+' · '+active.from+'–'+active.through,(zh&&active.noteZh)||active.note,(zh&&place.noteZh)||place.note||t('Approximate source location; footprint and height are separate evidence.','史料位置为近似值；建筑轮廓与高度另有证据。')],place.sources,selectedStory76);$('regional-detail').dataset.noTranslate='';}
+ window.addEventListener('atlas-story-place',e=>{selectedStory76=e.detail;showStory76();});
+ window.addEventListener('atlas-language-changed',()=>{if(selectedStory76&&!$('regional-detail').hidden)showStory76();});
+ localizeControls();
+ return {open,close,refresh:render,inspectPoint,isOpen:()=>visible};
+})();

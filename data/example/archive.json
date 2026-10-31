@@ -1,0 +1,211 @@
+{
+  "schema_version": "1.0",
+  "compiled_at": "2026-10-30",
+  "scope": "Synthetic teaching example",
+  "records": [
+    {
+      "id": "example-source-001",
+      "title": "Teaching example: building survey",
+      "date": "1921",
+      "date_kind": "survey",
+      "place": "Illustrative Cass Corridor location",
+      "location_precision": "building",
+      "coordinates": [
+        -83.059,
+        42.3372
+      ],
+      "source_kind": "primary_document",
+      "summary": "Invented teaching record demonstrating a source-to-building link. This is not evidence about an actual building.",
+      "source_url": "https://example.org/source-001",
+      "image_url": "",
+      "credit": "After Chinatown teaching fixture",
+      "rights_status": "Synthetic example; no historical source reproduced.",
+      "review_status": "example_only",
+      "generation_eligible": false,
+      "category": "archive",
+      "location_approved": true,
+      "location_basis": "Synthetic teaching coordinate",
+      "location_source": "https://example.org/source-001",
+      "location_uncertainty": 100,
+      "location_district": "new"
+    }
+  ],
+  "places": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "id": "413d7745-1cc1-4217-861a-f46ad7eada2f",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -83.05998001389958,
+            42.34431997982024
+          ]
+        },
+        "properties": {
+          "name": "Chinatown Sign Kiosk",
+          "address": "",
+          "source_url": "https://storymaps.arcgis.com/stories/66fbeec68dba4b5f98f0ff2560586a4d",
+          "precision": "approximate_city_storymap_marker",
+          "footprint_verified": false,
+          "date_of_location": "modern marker for historical place",
+          "caution": "GIS marker is not a surveyed footprint or historical entrance."
+        }
+      },
+      {
+        "type": "Feature",
+        "id": "144996f3-881d-48a9-9660-844b761b4519",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -83.05999302757465,
+            42.34371501595824
+          ]
+        },
+        "properties": {
+          "name": "Merchants Association Building",
+          "address": "3143 Cass Avenue",
+          "source_url": "https://storymaps.arcgis.com/stories/66fbeec68dba4b5f98f0ff2560586a4d",
+          "precision": "approximate_city_storymap_marker",
+          "footprint_verified": false,
+          "date_of_location": "modern marker for historical place",
+          "caution": "GIS marker is not a surveyed footprint or historical entrance."
+        }
+      },
+      {
+        "type": "Feature",
+        "id": "cdf8616b-d17a-4e68-b956-98364a78212e",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -83.05975992946635,
+            42.344373313130845
+          ]
+        },
+        "properties": {
+          "name": "Clarence M. Burton Elementary School",
+          "address": "",
+          "source_url": "https://storymaps.arcgis.com/stories/66fbeec68dba4b5f98f0ff2560586a4d",
+          "precision": "approximate_city_storymap_marker",
+          "footprint_verified": false,
+          "date_of_location": "modern marker for historical place",
+          "caution": "GIS marker is not a surveyed footprint or historical entrance."
+        }
+      },
+      {
+        "type": "Feature",
+        "id": "39b213df-47e9-4092-88a6-21836e1bb715",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -83.0602459934118,
+            42.34400498789825
+          ]
+        },
+        "properties": {
+          "name": "Chung's Restaurant",
+          "address": "3177 Cass Avenue",
+          "source_url": "https://storymaps.arcgis.com/stories/66fbeec68dba4b5f98f0ff2560586a4d",
+          "precision": "approximate_city_storymap_marker",
+          "footprint_verified": false,
+          "date_of_location": "modern marker for historical place",
+          "caution": "GIS marker is not a surveyed footprint or historical entrance."
+        }
+      },
+      {
+        "type": "Feature",
+        "id": "f51c8529-9c5d-42f6-80a0-1b77d7ae8165",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -83.06047102578744,
+            42.34442001783422
+          ]
+        },
+        "properties": {
+          "name": "Wah Lee Curio Shop and Grocery",
+          "address": "3409 Cass Avenue (north portion); Bow Wah at 3401 (south portion)",
+          "source_url": "https://storymaps.arcgis.com/stories/66fbeec68dba4b5f98f0ff2560586a4d",
+          "precision": "approximate_city_storymap_marker",
+          "footprint_verified": false,
+          "date_of_location": "modern marker for historical place",
+          "caution": "GIS marker is not a surveyed footprint or historical entrance."
+        }
+      },
+      {
+        "type": "Feature",
+        "id": "4ff3f23d-4839-43d6-87fd-e6fb5ec6535b",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -83.06118901961361,
+            42.34353602041628
+          ]
+        },
+        "properties": {
+          "name": "Woodstock Apartments",
+          "address": "475 Peterboro Street",
+          "source_url": "https://storymaps.arcgis.com/stories/66fbeec68dba4b5f98f0ff2560586a4d",
+          "precision": "approximate_city_storymap_marker",
+          "footprint_verified": false,
+          "date_of_location": "modern marker for historical place",
+          "caution": "GIS marker is not a surveyed footprint or historical entrance."
+        }
+      },
+      {
+        "type": "Feature",
+        "id": "b23f7569-f946-4a9f-a1f8-661f088439ac",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -83.06178044253058,
+            42.34294763569128
+          ]
+        },
+        "properties": {
+          "name": "Forbidden City",
+          "address": "3148 Second Avenue",
+          "source_url": "https://storymaps.arcgis.com/stories/66fbeec68dba4b5f98f0ff2560586a4d",
+          "precision": "approximate_city_storymap_marker",
+          "footprint_verified": false,
+          "date_of_location": "modern marker for historical place",
+          "caution": "GIS marker is not a surveyed footprint or historical entrance."
+        }
+      },
+      {
+        "type": "Feature",
+        "id": "7c861950-b34f-4864-bc51-8222e063d469",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -83.05877603732755,
+            42.342736009667284
+          ]
+        },
+        "properties": {
+          "name": "Golden Dragon",
+          "address": "",
+          "source_url": "https://storymaps.arcgis.com/stories/66fbeec68dba4b5f98f0ff2560586a4d",
+          "precision": "approximate_city_storymap_marker",
+          "footprint_verified": false,
+          "date_of_location": "modern marker for historical place",
+          "caution": "GIS marker is not a surveyed footprint or historical entrance."
+        }
+      }
+    ]
+  },
+  "source_priority": [
+    "Detroit Public Library",
+    "City HDAB original-source links",
+    "Reuther Library",
+    "Detroit Historical Society",
+    "Attributed oral recollections"
+  ],
+  "rules": [
+    "Keep capture, catalog, publication and recollection dates separate.",
+    "Do not geocode historical addresses against modern addresses without a crosswalk.",
+    "AI outputs are speculative derivatives and never primary sources."
+  ],
+  "new_batch_count": 1
+}

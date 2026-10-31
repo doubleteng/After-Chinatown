@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "Please cite this software when adapting the platform; cite historical sources separately."
+title: "After Chinatown: Interactive Spatial History Platform"
+type: software
+authors:
+  - family-names: Teng
+    given-names: Teng
+  - family-names: Cheng
+    given-names: Zhen
+version: 105.1-public.1
+date-released: 2026-10-30
+repository-code: "https://github.com/doubleteng/After-Chinatown"
+url: "https://afterchinatown.org/"
+license: MIT

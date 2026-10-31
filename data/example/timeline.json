@@ -1,0 +1,46 @@
+{
+  "version": "example-1",
+  "yearConvention": "End of selected year; the supplied record is fictional.",
+  "minYear": 1900,
+  "maxYear": 2026,
+  "keyYears": [
+    1921
+  ],
+  "buildings": [
+    {
+      "id": "example-building",
+      "name": "Fictional teaching building",
+      "district": "new",
+      "anchor": "example-anchor",
+      "envelopeIds": [
+        "example-envelope"
+      ],
+      "mappingBasis": "Synthetic identity link",
+      "events": [
+        {
+          "type": "construction",
+          "from": 1910,
+          "to": 1910,
+          "text": "Invented teaching date",
+          "sourceIds": [
+            "example-source-001"
+          ],
+          "url": "https://example.org/source-001"
+        }
+      ],
+      "presenceThrough": 2026
+    }
+  ],
+  "districtEvents": [],
+  "contextSources": [
+    {
+      "id": "example-source-001",
+      "year": 1921,
+      "title": "Synthetic survey",
+      "url": "https://example.org/source-001"
+    }
+  ],
+  "majorMilestones": [],
+  "communityPeriods": [],
+  "allowInventoryHypotheses": false
+}
